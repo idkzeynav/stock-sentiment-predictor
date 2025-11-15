@@ -1,222 +1,156 @@
 import requests
 import pandas as pd
 from binance.client import Client
-from datetime import datetime
+from datetime import datetime, timedelta
 import config
 import streamlit as st
+import time
 
 class DataCollector:
     def __init__(self):
-        """Initialize Binance client with error handling for Streamlit Cloud"""
-        try:
-            # Try to initialize with API keys if available
-            api_key = config.BINANCE_API_KEY if config.BINANCE_API_KEY else None
-            api_secret = config.BINANCE_API_SECRET if config.BINANCE_API_SECRET else None
-            
-            # Initialize without ping to avoid connection errors on startup
-            self.client = Client(api_key, api_secret, requests_params={'timeout': 20})
-            self.client.ping()  # Test connection
-            self.use_api = True
-        except Exception as e:
-            # Fallback to public API (no authentication needed)
-            st.warning("⚠️ Using public Binance API (no authentication). Some features may be limited.")
-            self.client = None
-            self.use_api = False
+        """Initialize with CoinGecko as primary source (no geo-restrictions)"""
+        # CoinGecko symbol mapping
+        self.coingecko_map = {
+            'BTCUSDT': 'bitcoin',
+            'ETHUSDT': 'ethereum',
+            'BNBUSDT': 'binancecoin',
+            'SOLUSDT': 'solana',
+            'ADAUSDT': 'cardano',
+            'XRPUSDT': 'ripple',
+            'DOTUSDT': 'polkadot',
+            'DOGEUSDT': 'dogecoin',
+            'MATICUSDT': 'matic-network',
+            'LTCUSDT': 'litecoin'
+        }
+        
+        st.info("✅ Using CoinGecko API (no geo-restrictions)")
+        self.use_coingecko = True
+        self.client = None
+        self.use_api = False
     
     def get_realtime_price(self, symbol):
-        """Fetch current price for a trading pair"""
+        """Fetch current price using CoinGecko API"""
         try:
-            if self.use_api and self.client:
-                st.info("🔐 Using authenticated Binance client")
-                ticker = self.client.get_symbol_ticker(symbol=symbol)
-                st.info(f"📊 Client response: {ticker}")
-                return {
-                    'symbol': symbol,
-                    'price': float(ticker['price']),
-                    'timestamp': datetime.now()
-                }
-            else:
-                # Fallback to public REST API
-                url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-                
-                # Debug: Show what we're requesting
-                st.info(f"🔍 Requesting: {url}")
-                st.write(f"**DEBUG URL:** {url}")  # More visible
-                
-                response = requests.get(url, timeout=10)
-                
-                # Debug: Show status code
-                st.info(f"📡 Status Code: {response.status_code}")
-                st.write(f"**DEBUG STATUS:** {response.status_code}")
-                
-                response.raise_for_status()  # Raise error for bad status
-                
-                # Debug: Show raw response
-                raw_data = response.text
-                st.info(f"📡 Raw API Response: {raw_data}")
-                st.write(f"**DEBUG RAW RESPONSE:** {raw_data}")
-                
-                data = response.json()
-                
-                # Debug: Show parsed data type and content
-                st.info(f"📊 Response type: {type(data)}")
-                st.info(f"📊 Is dict? {isinstance(data, dict)}")
-                st.info(f"📊 Is list? {isinstance(data, list)}")
-                
-                # Handle both dict and list responses
-                if isinstance(data, list):
-                    st.info(f"📊 List length: {len(data)}")
-                    if len(data) == 0:
-                        st.error("❌ API returned empty list")
-                        return None
-                    # Take first item if list
-                    data = data[0]
-                    st.info(f"📊 Extracted from list: {data}")
-                
-                # Ensure data is a dict now
-                if not isinstance(data, dict):
-                    st.error(f"❌ Expected dict, got {type(data)}")
-                    st.error(f"Data: {data}")
-                    return None
-                
-                # Show available keys
-                st.info(f"📊 Available keys: {list(data.keys())}")
-                
-                # Check if 'price' key exists
-                if 'price' not in data:
-                    st.error(f"❌ 'price' key not found!")
-                    st.error(f"Full response: {data}")
-                    return None
-                
-                # Successfully got price
-                price = float(data['price'])
-                st.success(f"✅ Price fetched successfully: ${price:,.2f}")
-                
-                return {
-                    'symbol': symbol,
-                    'price': price,
-                    'timestamp': datetime.now()
-                }
-                
-        except requests.exceptions.HTTPError as e:
-            st.error(f"❌ HTTP Error: {e}")
-            st.error(f"Response: {e.response.text if hasattr(e, 'response') else 'No response'}")
-            return None
+            # Convert Binance symbol to CoinGecko ID
+            if symbol not in self.coingecko_map:
+                st.error(f"❌ Symbol {symbol} not supported yet. Available: {list(self.coingecko_map.keys())}")
+                return None
+            
+            coin_id = self.coingecko_map[symbol]
+            
+            url = f"https://api.coingecko.com/api/v3/simple/price"
+            params = {
+                'ids': coin_id,
+                'vs_currencies': 'usd'
+            }
+            
+            st.info(f"🔍 Requesting: {url}")
+            st.info(f"📊 Parameters: {params}")
+            
+            response = requests.get(url, params=params, timeout=10)
+            
+            st.info(f"📡 Status Code: {response.status_code}")
+            
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            st.info(f"📊 Raw Response: {data}")
+            
+            if coin_id not in data or 'usd' not in data[coin_id]:
+                st.error(f"❌ Invalid response format: {data}")
+                return None
+            
+            price = float(data[coin_id]['usd'])
+            
+            st.success(f"✅ Price fetched successfully: ${price:,.2f}")
+            
+            return {
+                'symbol': symbol,
+                'price': price,
+                'timestamp': datetime.now()
+            }
+            
         except requests.exceptions.RequestException as e:
             st.error(f"❌ Network error: {e}")
             return None
-        except (KeyError, ValueError, TypeError) as e:
-            st.error(f"❌ Error parsing data: {type(e).__name__}: {e}")
-            import traceback
-            st.error(f"Traceback: {traceback.format_exc()}")
-            return None
         except Exception as e:
-            st.error(f"❌ Unexpected error: {type(e).__name__}: {e}")
+            st.error(f"❌ Error: {type(e).__name__}: {e}")
             import traceback
             st.error(f"Traceback: {traceback.format_exc()}")
             return None
     
     def get_historical_data(self, symbol, interval='1h', limit=100):
-        """Fetch historical klines data"""
+        """Fetch historical data from CoinGecko"""
         try:
-            if self.use_api and self.client:
-                st.info(f"🔐 Using authenticated client for historical data")
-                # Use authenticated client
-                klines = self.client.get_klines(
-                    symbol=symbol,
-                    interval=interval,
-                    limit=limit
-                )
-            else:
-                # Fallback to public REST API
-                url = f"https://api.binance.com/api/v3/klines"
-                params = {
-                    'symbol': symbol,
-                    'interval': interval,
-                    'limit': limit
-                }
-                st.info(f"🔍 Fetching historical data from: {url}")
-                st.info(f"📊 Parameters: {params}")
-                
-                response = requests.get(url, params=params, timeout=10)
-                
-                st.info(f"📡 Status Code: {response.status_code}")
-                
-                response.raise_for_status()
-                
-                klines = response.json()
-                
-                st.info(f"📊 Received {len(klines)} candles from API")
-                
-                # Check if response is an error
-                if isinstance(klines, dict) and 'code' in klines:
-                    st.error(f"❌ API Error: {klines}")
-                    return None
-            
-            if not klines or len(klines) == 0:
-                st.error("❌ No historical data returned from API")
+            if symbol not in self.coingecko_map:
+                st.error(f"❌ Symbol {symbol} not supported")
                 return None
             
-            st.info(f"✅ Processing {len(klines)} candles...")
+            coin_id = self.coingecko_map[symbol]
             
-            df = pd.DataFrame(klines, columns=[
-                'timestamp', 'open', 'high', 'low', 'close', 
-                'volume', 'close_time', 'quote_volume', 'trades',
-                'taker_base', 'taker_quote', 'ignore'
-            ])
+            # Calculate days needed
+            hours_needed = limit
+            days = max(1, hours_needed // 24 + 1)
             
-            st.info(f"📊 DataFrame created with shape: {df.shape}")
+            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+            params = {
+                'vs_currency': 'usd',
+                'days': days,
+                'interval': 'hourly' if interval == '1h' else 'daily'
+            }
             
-            # Convert timestamp
+            st.info(f"🔍 Fetching historical data from: {url}")
+            st.info(f"📊 Parameters: {params}")
+            
+            response = requests.get(url, params=params, timeout=10)
+            
+            st.info(f"📡 Status Code: {response.status_code}")
+            
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if 'prices' not in data:
+                st.error(f"❌ Invalid response: {data}")
+                return None
+            
+            prices = data['prices']
+            
+            st.info(f"📊 Received {len(prices)} price points")
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(prices, columns=['timestamp', 'close'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             
-            # CRITICAL: Convert ALL price columns to float
-            df['open'] = pd.to_numeric(df['open'], errors='coerce')
-            df['high'] = pd.to_numeric(df['high'], errors='coerce')
-            df['low'] = pd.to_numeric(df['low'], errors='coerce')
-            df['close'] = pd.to_numeric(df['close'], errors='coerce')
-            df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+            # CoinGecko only gives prices, so we'll simulate OHLC
+            df['open'] = df['close']
+            df['high'] = df['close'] * 1.001  # Simulate with small variance
+            df['low'] = df['close'] * 0.999
+            df['volume'] = 0  # CoinGecko free API doesn't include volume
             
-            st.info(f"📊 Before dropna: {len(df)} rows")
+            # Take only the requested number of rows
+            df = df.tail(limit)
             
-            # Remove any rows with NaN values
-            df = df.dropna()
+            # Reorder columns
+            df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
             
-            st.info(f"📊 After dropna: {len(df)} rows")
+            st.success(f"✅ Returning {len(df)} rows of historical data")
             
-            result_df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-            
-            st.success(f"✅ Returning {len(result_df)} rows of clean data")
-            
-            return result_df
+            return df
             
         except requests.exceptions.RequestException as e:
-            st.error(f"❌ Network error fetching historical data: {e}")
+            st.error(f"❌ Network error: {e}")
             import traceback
             st.error(f"Traceback: {traceback.format_exc()}")
             return None
         except Exception as e:
-            st.error(f"❌ Error fetching historical data: {type(e).__name__}: {e}")
+            st.error(f"❌ Error: {type(e).__name__}: {e}")
             import traceback
             st.error(f"Traceback: {traceback.format_exc()}")
             return None
     
     def get_market_depth(self, symbol):
-        """Get order book depth"""
-        try:
-            if self.use_api and self.client:
-                depth = self.client.get_order_book(symbol=symbol, limit=10)
-            else:
-                # Fallback to public REST API
-                url = f"https://api.binance.com/api/v3/depth"
-                params = {'symbol': symbol, 'limit': 10}
-                response = requests.get(url, params=params, timeout=10)
-                depth = response.json()
-            
-            return {
-                'bids': depth['bids'][:5],
-                'asks': depth['asks'][:5]
-            }
-        except Exception as e:
-            st.error(f"Error fetching market depth: {e}")
-            return None
+        """Market depth not available in CoinGecko free API"""
+        st.warning("⚠️ Market depth not available with CoinGecko API")
+        return None
