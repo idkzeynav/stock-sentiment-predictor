@@ -94,8 +94,7 @@ with tab1:
             xaxis_title="Time",
             height=500
         )
-        st.plotly_chart(fig, width="stretch")
-
+        st.plotly_chart(fig, use_container_width=True)
     
     # Volume chart
     if hist_data is not None:
@@ -106,7 +105,7 @@ with tab1:
             title="Trading Volume"
         )
         fig_volume.update_layout(height=300)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig_volume, use_container_width=True)
 
 # Tab 2: Prediction
 with tab2:
@@ -353,7 +352,7 @@ with tab3:
                 title={'text': "Overall Market Sentiment"}
             ))
             fig.update_layout(height=300)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
             
             # Trading recommendation
             st.markdown("### 💡 What This Means For Trading")
@@ -406,131 +405,6 @@ with tab3:
         **Neutral Example:**
         "Bitcoin trading sideways around $40K. Market participants await Federal Reserve decision. Mixed signals from technical and fundamental indicators."
         """)
-# # Tab 2: Prediction
-# with tab2:
-#     st.subheader("🔮 Price Prediction")
-    
-#     col1, col2 = st.columns([2, 1])
-    
-#     with col1:
-#         if st.button("🚀 Train & Predict", type="primary"):
-#             with st.spinner("Training model..."):
-#                 hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
-                
-#                 if hist_data is not None:
-#                     # Train model
-#                     score = predictor.train(hist_data)
-#                     st.success(f"Model trained! R² Score: {score:.4f}")
-                    
-#                     # Make prediction
-#                     prediction = predictor.predict_next_price(hist_data)
-                    
-#                     if prediction:
-#                         st.markdown("### 📊 Prediction Results")
-                        
-#                         col_a, col_b, col_c = st.columns(3)
-#                         with col_a:
-#                             st.metric("Current Price", f"${prediction['current_price']:.2f}")
-#                         with col_b:
-#                             st.metric("Predicted Price", f"${prediction['predicted_price']:.2f}")
-#                         with col_c:
-#                             st.metric("Expected Change", 
-#                                     f"{prediction['change_pct']:+.2f}%",
-#                                     delta=f"{prediction['change_pct']:+.2f}%")
-                        
-#                         # Log prediction
-#                         logger.log_prediction({
-#                             'symbol': selected_symbol,
-#                             'current_price': prediction['current_price'],
-#                             'predicted_price': prediction['predicted_price'],
-#                             'sentiment': 'N/A',
-#                             'sentiment_score': 0.0
-#                         })
-    
-#     with col2:
-#         st.info("**How it works:**\n\n"
-#                 "1. Fetches historical data\n"
-#                 "2. Trains Random Forest model\n"
-#                 "3. Predicts next price point\n"
-#                 "4. Shows expected change")
-
-# # Tab 3: Sentiment Analysis
-# with tab3:
-#     st.subheader("💬 Sentiment Analysis")
-    
-#     user_input = st.text_area(
-#         "Enter market news or social media text:",
-#         height=150,
-#         placeholder="e.g., Bitcoin reaches new all-time high as institutional adoption increases..."
-#     )
-    
-#     col1, col2 = st.columns([1, 3])
-    
-#     with col1:
-#         analyze_btn = st.button("🧠 Analyze Sentiment", type="primary")
-    
-#     if analyze_btn and user_input:
-#         with st.spinner("Analyzing sentiment..."):
-#             result = analyzer.analyze_text(user_input)
-            
-#             # Display results
-#             st.markdown("### 📊 Sentiment Results")
-            
-#             col_a, col_b, col_c = st.columns(3)
-            
-#             with col_a:
-#                 sentiment_emoji = {
-#                     'positive': '😊', 
-#                     'negative': '😟', 
-#                     'neutral': '😐'
-#                 }
-#                 st.metric(
-#                     "Sentiment",
-#                     result['sentiment'].capitalize(),
-#                     help=sentiment_emoji.get(result['sentiment'])
-#                 )
-            
-#             with col_b:
-#                 st.metric("Polarity", f"{result['polarity']:.3f}")
-            
-#             with col_c:
-#                 st.metric("VADER Score", f"{result['vader_score']:.3f}")
-            
-#             # Visualization
-#             fig = go.Figure(go.Indicator(
-#                 mode="gauge+number",
-#                 value=result['combined_score'],
-#                 domain={'x': [0, 1], 'y': [0, 1]},
-#                 gauge={
-#                     'axis': {'range': [-1, 1]},
-#                     'bar': {'color': "darkblue"},
-#                     'steps': [
-#                         {'range': [-1, -0.1], 'color': config.CHART_COLORS['negative']},
-#                         {'range': [-0.1, 0.1], 'color': config.CHART_COLORS['neutral']},
-#                         {'range': [0.1, 1], 'color': config.CHART_COLORS['positive']}
-#                     ],
-#                     'threshold': {
-#                         'line': {'color': "red", 'width': 4},
-#                         'thickness': 0.75,
-#                         'value': result['combined_score']
-#                     }
-#                 },
-#                 title={'text': "Sentiment Score"}
-#             ))
-#             fig.update_layout(height=300)
-#             st.plotly_chart(fig, use_container_width=True)
-            
-#             # Log sentiment
-#             price_data = collector.get_realtime_price(selected_symbol)
-#             if price_data:
-#                 logger.log_prediction({
-#                     'symbol': selected_symbol,
-#                     'current_price': price_data['price'],
-#                     'predicted_price': None,
-#                     'sentiment': result['sentiment'],
-#                     'sentiment_score': result['combined_score'],
-#                     'user_input': user_input[:100]
-#                 })
 
 # Tab 4: Analytics
 with tab4:
@@ -566,14 +440,14 @@ with tab4:
                             'negative': config.CHART_COLORS['negative'],
                             'neutral': config.CHART_COLORS['neutral']
                         })
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
     
     # Recent logs
     st.markdown("### 📋 Recent Activity")
     logs = logger.get_logs(50)
     
     if not logs.empty:
-        st.dataframe(logs, width="stretch", height=400)
+        st.dataframe(logs, use_container_width=True, height=400)
     else:
         st.info("No activity logged yet. Start making predictions!")
 
