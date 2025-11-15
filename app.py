@@ -94,7 +94,8 @@ with tab1:
             xaxis_title="Time",
             height=500
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
+
     
     # Volume chart
     if hist_data is not None:
@@ -105,7 +106,8 @@ with tab1:
             title="Trading Volume"
         )
         fig_volume.update_layout(height=300)
-        st.plotly_chart(fig_volume, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
+
 # Tab 2: Prediction
 with tab2:
     st.subheader("🔮 AI-Powered Price Prediction")
@@ -351,7 +353,7 @@ with tab3:
                 title={'text': "Overall Market Sentiment"}
             ))
             fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
             # Trading recommendation
             st.markdown("### 💡 What This Means For Trading")
@@ -564,14 +566,14 @@ with tab4:
                             'negative': config.CHART_COLORS['negative'],
                             'neutral': config.CHART_COLORS['neutral']
                         })
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
     
     # Recent logs
     st.markdown("### 📋 Recent Activity")
     logs = logger.get_logs(50)
     
     if not logs.empty:
-        st.dataframe(logs, use_container_width=True, height=400)
+        st.dataframe(logs, width="stretch", height=400)
     else:
         st.info("No activity logged yet. Start making predictions!")
 
