@@ -36,15 +36,50 @@ class DataCollector:
             else:
                 # Fallback to public REST API
                 url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+                
+                # Debug: Show what we're requesting
+                st.info(f"🔍 Requesting: {url}")
+                
                 response = requests.get(url, timeout=10)
+                response.raise_for_status()  # Raise error for bad status
+                
+                # Debug: Show raw response
+                raw_data = response.text
+                st.info(f"📡 Raw API Response: {raw_data[:200]}")
+                
                 data = response.json()
+                
+                # Debug: Show parsed data type and content
+                st.info(f"📊 Response type: {type(data)}")
+                st.info(f"📊 Response content: {data}")
+                
+                # Handle both dict and list responses
+                if isinstance(data, list):
+                    if len(data) == 0:
+                        st.error("API returned empty list")
+                        return None
+                    data = data[0]
+                
+                # Check if 'price' key exists
+                if 'price' not in data:
+                    st.error(f"❌ 'price' key not found. Available keys: {list(data.keys())}")
+                    return None
+                
                 return {
                     'symbol': symbol,
                     'price': float(data['price']),
                     'timestamp': datetime.now()
                 }
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Network error: {e}")
+            return None
+        except (KeyError, ValueError, TypeError) as e:
+            st.error(f"❌ Error parsing data: {e}")
+            return None
         except Exception as e:
-            st.error(f"Error fetching price: {e}")
+            st.error(f"❌ Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             return None
     
     def get_historical_data(self, symbol, interval='1h', limit=100):
