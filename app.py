@@ -161,13 +161,28 @@ with tab2:
             with st.spinner("🧠 Training AI model on historical data..."):
                 hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
                 
+                # Debug: Show data info
                 if hist_data is not None:
+                    st.info(f"✅ Fetched {len(hist_data)} hours of data")
+                    
+                    # Show a sample of the data
+                    with st.expander("🔍 View Data Sample (for debugging)"):
+                        st.dataframe(hist_data.head(10))
+                        st.write(f"Data shape: {hist_data.shape}")
+                        st.write(f"Columns: {hist_data.columns.tolist()}")
+                else:
+                    st.error("❌ Failed to fetch historical data. Please try again or select a different trading pair.")
+                    st.stop()
+                
+                if hist_data is not None and len(hist_data) > 30:
                     # Train model
                     score = predictor.train(hist_data)
-                    st.success(f"✅ Model trained successfully! Accuracy Score (R²): {score:.4f}")
                     
-                    # Make prediction
-                    prediction = predictor.predict_next_price(hist_data)
+                    if score > 0:
+                        st.success(f"✅ Model trained successfully! Accuracy Score (R²): {score:.4f}")
+                        
+                        # Make prediction
+                        prediction = predictor.predict_next_price(hist_data)
                     
                     if prediction:
                         st.markdown("### 📊 Market Forecast")
