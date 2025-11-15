@@ -50,13 +50,80 @@ st.markdown("---")
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🔮 Prediction", "💬 Sentiment", "📈 Analytics"])
 
 # Tab 1: Dashboard
+# with tab1:
+#     col1, col2, col3 = st.columns(3)
+    
+#     # Fetch real-time price
+#     price_data = collector.get_realtime_price(selected_symbol)
+    
+#     if price_data:
+#         with col1:
+#             st.metric("Current Price", f"${price_data['price']:,.2f}")
+        
+#         with col2:
+#             # Fetch historical data for change calculation
+#             hist_data = collector.get_historical_data(selected_symbol, '1h', 24)
+#             if hist_data is not None and len(hist_data) > 1:
+#                 price_change = ((price_data['price'] - float(hist_data['close'].iloc[0])) / 
+#                               float(hist_data['close'].iloc[0])) * 100
+#                 st.metric("24h Change", f"{price_change:+.2f}%", 
+#                          delta=f"{price_change:+.2f}%")
+#             else:
+#                 st.metric("24h Change", "N/A")
+        
+#         with col3:
+#             st.metric("Last Updated", price_data['timestamp'].strftime("%H:%M:%S"))
+    
+#     # Price chart
+#     st.subheader("📈 Price Chart")
+#     hist_data = collector.get_historical_data(selected_symbol, '1h', 100)
+    
+#     if hist_data is not None:
+#         fig = go.Figure()
+#         fig.add_trace(go.Candlestick(
+#             x=hist_data['timestamp'],
+#             open=hist_data['open'].astype(float),
+#             high=hist_data['high'].astype(float),
+#             low=hist_data['low'].astype(float),
+#             close=hist_data['close'].astype(float),
+#             name=selected_symbol
+#         ))
+#         fig.update_layout(
+#             title=f"{selected_symbol} Price History",
+#             yaxis_title="Price (USDT)",
+#             xaxis_title="Time",
+#             height=500
+#         )
+#         st.plotly_chart(fig, use_container_width=True)
+    
+#     # Volume chart
+#     if hist_data is not None:
+#         fig_volume = px.bar(
+#             hist_data, 
+#             x='timestamp', 
+#             y='volume',
+#             title="Trading Volume"
+#         )
+#         fig_volume.update_layout(height=300)
+#         st.plotly_chart(fig_volume, use_container_width=True)
+
+# Tab 1: Dashboard
 with tab1:
     col1, col2, col3 = st.columns(3)
+    
+    # ADD DEBUG - Show what's happening
+    st.write("**🔍 DEBUG: Attempting to fetch price...**")
+    st.write(f"**Symbol:** {selected_symbol}")
     
     # Fetch real-time price
     price_data = collector.get_realtime_price(selected_symbol)
     
+    # ADD DEBUG - Show what we got
+    st.write(f"**📊 DEBUG: price_data = {price_data}**")
+    st.write(f"**📊 DEBUG: price_data type = {type(price_data)}**")
+    
     if price_data:
+        st.success("✅ Price fetched successfully!")
         with col1:
             st.metric("Current Price", f"${price_data['price']:,.2f}")
         
@@ -73,39 +140,9 @@ with tab1:
         
         with col3:
             st.metric("Last Updated", price_data['timestamp'].strftime("%H:%M:%S"))
-    
-    # Price chart
-    st.subheader("📈 Price Chart")
-    hist_data = collector.get_historical_data(selected_symbol, '1h', 100)
-    
-    if hist_data is not None:
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(
-            x=hist_data['timestamp'],
-            open=hist_data['open'].astype(float),
-            high=hist_data['high'].astype(float),
-            low=hist_data['low'].astype(float),
-            close=hist_data['close'].astype(float),
-            name=selected_symbol
-        ))
-        fig.update_layout(
-            title=f"{selected_symbol} Price History",
-            yaxis_title="Price (USDT)",
-            xaxis_title="Time",
-            height=500
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Volume chart
-    if hist_data is not None:
-        fig_volume = px.bar(
-            hist_data, 
-            x='timestamp', 
-            y='volume',
-            title="Trading Volume"
-        )
-        fig_volume.update_layout(height=300)
-        st.plotly_chart(fig_volume, use_container_width=True)
+    else:
+        st.error("❌ FAILED TO FETCH PRICE!")
+        st.error("Check the blue debug messages above to see what went wrong")
 
 # Tab 2: Prediction
 with tab2:
