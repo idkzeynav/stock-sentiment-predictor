@@ -1,11 +1,11 @@
 # app.py
-# Fixed Streamlit dashboard with proper volume display and error handling
+# Fixed with caching to avoid rate limits
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 # Import custom modules
@@ -34,6 +34,18 @@ def init_components():
 
 collector, analyzer, predictor, logger = init_components()
 
+# Cache historical data for 5 minutes to avoid rate limits
+@st.cache_data(ttl=300)  # 5 minutes cache
+def get_cached_historical_data(symbol, limit):
+    """Cached version to avoid repeated API calls"""
+    return collector.get_historical_data(symbol, '1h', limit)
+
+# Cache price data for 30 seconds
+@st.cache_data(ttl=30)  # 30 seconds cache
+def get_cached_price(symbol):
+    """Cached version for price data"""
+    return collector.get_realtime_price(symbol)
+
 # Sidebar
 st.sidebar.title("⚙️ Settings")
 selected_symbol = st.sidebar.selectbox(
@@ -43,7 +55,7 @@ selected_symbol = st.sidebar.selectbox(
 )
 
 auto_refresh = st.sidebar.checkbox("Auto Refresh", value=False)
-refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 10, 120, 30)
+refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 30, 300, 60)
   
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔧 Debug Tools")
@@ -57,7 +69,6 @@ if st.sidebar.button("🔌 Test API Connection", use_container_width=True):
             else:
                 st.sidebar.error("❌ API connection failed")
             
-            # Show debug messages
             debug_info = collector.get_debug_info()
             if debug_info:
                 with st.sidebar.expander("View Details"):
@@ -65,71 +76,52 @@ if st.sidebar.button("🔌 Test API Connection", use_container_width=True):
         except Exception as e:
             st.sidebar.error(f"❌ Error: {str(e)}")
 
-if st.sidebar.button("📊 Test Historical Data", use_container_width=True):
+if st.sidebar.button("📊 Fetch Fresh Data", use_container_width=True):
     with st.spinner(f"Fetching data for {selected_symbol}..."):
         try:
-            # Test with smaller limit first
-            hist = collector.get_historical_data(selected_symbol, '1h', 24)
+            # Clear cache first
+            st.cache_data.clear()
+            
+            # Fetch fresh data
+            hist = collector.get_historical_data(selected_symbol, '1h', 48)
             
             if hist is not None and not hist.empty:
-                st.sidebar.success(f"✅ Got {len(hist)} rows")
+                st.sidebar.success(f"✅ Got {len(hist)} rows!")
                 
                 with st.sidebar.expander("📈 View Sample"):
                     st.dataframe(hist.head(3), use_container_width=True)
-                    st.write("**Statistics:**")
-                    st.write(f"- Price range: ${hist['close'].min():.2f} - ${hist['close'].max():.2f}")
-                    st.write(f"- Avg volume: ${hist['volume'].mean():.2f}")
+                    st.write(f"**Price:** ${hist['close'].iloc[-1]:,.2f}")
+                    st.write(f"**Range:** ${hist['close'].min():.2f} - ${hist['close'].max():.2f}")
             else:
                 st.sidebar.error("❌ No data returned")
             
-            # Always show debug info
             debug_info = collector.get_debug_info()
             if debug_info:
-                with st.sidebar.expander("🔍 Debug Log"):
+                with st.sidebar.expander("🔍 Debug Log", expanded=True):
                     st.code("\n".join(debug_info), language="text")
                     
         except Exception as e:
             st.sidebar.error(f"❌ Error: {str(e)}")
             import traceback
-            with st.sidebar.expander("Full Error"):
+            with st.sidebar.expander("Stack Trace"):
                 st.code(traceback.format_exc())
-
-if st.sidebar.button("💰 Test Real-time Price", use_container_width=True):
-    with st.spinner("Fetching price..."):
-        try:
-            price = collector.get_realtime_price(selected_symbol)
-            
-            if price:
-                st.sidebar.success(f"✅ ${price['price']:,.2f}")
-                st.sidebar.write(f"24h Volume: ${price['volume_24h']:,.0f}")
-                st.sidebar.write(f"24h Change: {price['change_24h']:+.2f}%")
-            else:
-                st.sidebar.error("❌ Failed to fetch price")
-            
-            # Show debug info
-            debug_info = collector.get_debug_info()
-            if debug_info:
-                with st.sidebar.expander("🔍 Debug Log"):
-                    st.code("\n".join(debug_info), language="text")
-                    
-        except Exception as e:
-            st.sidebar.error(f"❌ Error: {str(e)}")
 
 st.sidebar.markdown("---")
 if st.sidebar.checkbox("📋 Show API Info"):
-    st.sidebar.info("""
-    **CoinGecko Free Tier Limits:**
-    - 10-50 calls per minute
-    - 2 second delay between calls
-    - Max 365 days history
-    - Hourly data up to 90 days
+    st.sidebar.info(f"""
+    **Symbol:** {selected_symbol}
+    **Coin ID:** {collector.coingecko_map.get(selected_symbol, 'Unknown')}
     
-    **Current Symbol:** {symbol}
-    **Coin ID:** {coin_id}
-    """.format(
-        symbol=selected_symbol,
-        coin_id=collector.coingecko_map.get(selected_symbol, "Unknown")
-    ))
+    **Rate Limits:**
+    - Delay: {collector.min_request_interval}s
+    - Max calls: 10-50/min
+    
+    **Caching:**
+    - Price: 30 seconds
+    - Historical: 5 minutes
+    
+    💡 Data is cached to avoid rate limits!
+    """)
 
 # Main title
 st.title(f"{config.APP_ICON} {config.APP_TITLE}")
@@ -140,21 +132,22 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🔮 Prediction", "💬 Sen
 
 # Tab 1: Dashboard
 with tab1:
-    col1, col2, col3, col4 = st.columns(4)
+    # Fetch data ONCE and reuse it
+    # This is the key fix - we fetch historical data once and derive everything from it
+    hist_data = get_cached_historical_data(selected_symbol, 168)  # 7 days
+    price_data = get_cached_price(selected_symbol)
 
-    # Fetch real-time price
-    price_data = collector.get_realtime_price(selected_symbol)
+    col1, col2, col3, col4 = st.columns(4)
 
     if price_data:
         with col1:
             st.metric("Current Price", f"${price_data['price']:,.2f}")
 
         with col2:
-            # Calculate 1h change from historical data
-            hist_data_1h = collector.get_historical_data(selected_symbol, '1h', 2)
-            if hist_data_1h is not None and len(hist_data_1h) > 1:
-                price_change_1h = ((price_data['price'] - float(hist_data_1h['close'].iloc[0])) /
-                              float(hist_data_1h['close'].iloc[0])) * 100
+            # Calculate 1h change from historical data (if available)
+            if hist_data is not None and len(hist_data) > 1:
+                price_change_1h = ((price_data['price'] - float(hist_data['close'].iloc[-2])) /
+                              float(hist_data['close'].iloc[-2])) * 100
                 st.metric("1h Change", f"{price_change_1h:+.2f}%", 
                          delta=f"{price_change_1h:+.2f}%")
             else:
@@ -172,11 +165,10 @@ with tab1:
         with col4:
             st.metric("Last Updated", price_data['timestamp'].strftime("%H:%M:%S"))
     else:
-        st.warning("⚠️ Unable to fetch live price. Retrying...")
+        st.warning("⚠️ Unable to fetch live price. Check debug panel.")
 
-    # Price chart
+    # Price chart (using already fetched data)
     st.subheader("📈 Price Chart")
-    hist_data = collector.get_historical_data(selected_symbol, '1h', 168)  # 7 days
 
     if hist_data is not None and not hist_data.empty:
         fig = go.Figure()
@@ -197,7 +189,7 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Volume chart with proper data
+        # Volume chart
         st.subheader("📊 Trading Volume")
         if hist_data['volume'].sum() > 0:
             fig_volume = go.Figure()
@@ -218,16 +210,16 @@ with tab1:
         else:
             st.info("💡 Volume data is estimated. For real-time volume, check the 24h Volume metric above.")
     else:
-        st.error("❌ Failed to load historical data. Please try again.")
+        st.error("❌ Failed to load historical data. Click 'Fetch Fresh Data' in sidebar or wait for cache to expire.")
 
-      # Debug Panel
+    # Debug Panel
     if hasattr(collector, 'get_debug_info'):
         with st.expander("🔍 Debug Information", expanded=False):
             st.markdown("### Recent API Activity")
             
             debug_info = collector.get_debug_info()
             if debug_info and len(debug_info) > 0:
-                st.code("\n".join(debug_info[-30:]), language="text")  # Last 30 messages
+                st.code("\n".join(debug_info[-30:]), language="text")
             else:
                 st.info("No debug information available yet.")
             
@@ -241,6 +233,7 @@ with tab1:
                         collector.clear_debug_info()
                         st.success("Debug log cleared!")
                         st.rerun()
+
 # Tab 2: Prediction
 with tab2:
     st.subheader("🔮 AI-Powered Price Prediction")
@@ -266,21 +259,22 @@ with tab2:
         if st.button("🚀 Generate AI Prediction", type="primary", use_container_width=True):
             with st.spinner("🧠 Training AI model and generating prediction..."):
                 try:
-                    hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
+                    # Use cached data or fetch new
+                    hist_data_pred = get_cached_historical_data(selected_symbol, 200)
 
-                    if hist_data is None or hist_data.empty:
-                        st.error("❌ Failed to fetch sufficient historical data. Please try again or select a different symbol.")
-                    elif len(hist_data) < 50:
-                        st.warning(f"⚠️ Only {len(hist_data)} data points available. Need at least 50 for reliable predictions.")
+                    if hist_data_pred is None or hist_data_pred.empty:
+                        st.error("❌ Failed to fetch sufficient historical data. Try clicking 'Fetch Fresh Data' in sidebar.")
+                    elif len(hist_data_pred) < 50:
+                        st.warning(f"⚠️ Only {len(hist_data_pred)} data points available. Need at least 50 for reliable predictions.")
                     else:
                         # Train model
-                        score = predictor.train(hist_data)
+                        score = predictor.train(hist_data_pred)
 
                         if score is not None and score > 0:
                             st.success(f"✅ Model trained successfully! Accuracy (R²): {score:.4f}")
 
                             # Make prediction
-                            prediction = predictor.predict_next_price(hist_data)
+                            prediction = predictor.predict_next_price(hist_data_pred)
 
                             if prediction:
                                 st.markdown("### 📊 Market Forecast")
@@ -330,12 +324,9 @@ with tab2:
                         else:
                             st.error("❌ Model training failed. The data quality may be insufficient or contains errors.")
                             
-                except NameError as ne:
-                    st.error(f"❌ Configuration error: {str(ne)}")
-                    st.info("💡 This error suggests a module configuration issue. Please check that all dependencies are installed correctly.")
                 except Exception as e:
                     st.error(f"❌ An unexpected error occurred: {str(e)}")
-                    st.info("💡 Try selecting a different trading pair or refreshing the page.")
+                    st.info("💡 Try selecting a different trading pair or clicking 'Fetch Fresh Data' in sidebar.")
 
     with col2:
         st.info("**📚 Guide:**\n\n1️⃣ Click predict button\n\n2️⃣ AI analyzes 200 hours\n\n3️⃣ Get price forecast\n\n4️⃣ View market signal")
@@ -424,11 +415,11 @@ with tab3:
                 st.plotly_chart(fig, use_container_width=True)
 
                 # Log sentiment
-                price_data = collector.get_realtime_price(selected_symbol)
-                if price_data:
+                price_data_sent = get_cached_price(selected_symbol)
+                if price_data_sent:
                     logger.log_prediction({
                         'symbol': selected_symbol,
-                        'current_price': price_data['price'],
+                        'current_price': price_data_sent['price'],
                         'predicted_price': None,
                         'sentiment': result['sentiment'],
                         'sentiment_score': result['combined_score']
@@ -467,9 +458,9 @@ with tab4:
             fig = px.pie(sentiment_df, values='Count', names='Sentiment',
                         color='Sentiment',
                         color_discrete_map={
-                            'positive': '#2ecc71',  # Green
-                            'negative': '#e74c3c',  # Red
-                            'neutral': '#f39c12'    # Orange/Yellow
+                            'positive': '#2ecc71',
+                            'negative': '#e74c3c',
+                            'neutral': '#f39c12'
                         })
             st.plotly_chart(fig, use_container_width=True)
 
@@ -485,7 +476,8 @@ with tab4:
 st.markdown("---")
 st.caption("Real-Time Crypto Sentiment Predictor v1.0 | Built with Streamlit & ML")
 
-# Auto-refresh
+# Auto-refresh with cache awareness
 if auto_refresh:
     time.sleep(refresh_interval)
+    st.cache_data.clear()  # Clear cache before refresh
     st.rerun()
