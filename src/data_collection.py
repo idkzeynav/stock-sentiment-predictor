@@ -94,9 +94,9 @@ class DataCollector:
             hours_needed = limit
             days_needed = hours_needed // 24 + 1
             
-            # Choose closest valid day value
+            # Choose closest valid day value that's >= days_needed
             valid_days = [1, 7, 14, 30, 90, 180, 365]
-            days = min(valid_days, key=lambda x: abs(x - days_needed))
+            days = next((d for d in valid_days if d >= days_needed), valid_days[-1])
             
             st.info(f"📊 Requested {limit} hours ≈ {days_needed} days, using {days} days")
             
