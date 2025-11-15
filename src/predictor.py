@@ -19,12 +19,17 @@ class PricePredictor:
     def prepare_features(self, df):
         """Create technical indicators as features"""
         try:
+            if df is None or len(df) == 0:
+                logger.error("No data provided for feature preparation")
+                return None
+                
             df = df.copy()
             
             # Ensure all columns are numeric
             numeric_cols = ['open', 'high', 'low', 'close', 'volume']
             for col in numeric_cols:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
             
             # Remove any rows with NaN values after conversion
             df = df.dropna()

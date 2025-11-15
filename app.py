@@ -64,9 +64,15 @@ with tab1:
             st.metric("Current Price", f"${price_data['price']:,.2f}")
 
         with col2:
-            change_24h = price_data.get('change_24h', 0)
-            st.metric("24h Change", f"{change_24h:+.2f}%", 
-                     delta=f"{change_24h:+.2f}%")
+            # Calculate 1h change from historical data
+            hist_data_1h = collector.get_historical_data(selected_symbol, '1h', 2)
+            if hist_data_1h is not None and len(hist_data_1h) > 1:
+                price_change_1h = ((price_data['price'] - float(hist_data_1h['close'].iloc[0])) /
+                              float(hist_data_1h['close'].iloc[0])) * 100
+                st.metric("1h Change", f"{price_change_1h:+.2f}%", 
+                         delta=f"{price_change_1h:+.2f}%")
+            else:
+                st.metric("1h Change", "N/A")
 
         with col3:
             volume_24h = price_data.get('volume_24h', 0)
@@ -156,12 +162,14 @@ with tab2:
                     hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
 
                     if hist_data is None or hist_data.empty:
-                        st.error("❌ Failed to fetch sufficient historical data. Please try again.")
+                        st.error("❌ Failed to fetch sufficient historical data. Please try again or select a different symbol.")
+                    elif len(hist_data) < 50:
+                        st.warning(f"⚠️ Only {len(hist_data)} data points available. Need at least 50 for reliable predictions.")
                     else:
                         # Train model
                         score = predictor.train(hist_data)
 
-                        if score is not None:
+                        if score is not None and score > 0:
                             st.success(f"✅ Model trained successfully! Accuracy (R²): {score:.4f}")
 
                             # Make prediction
@@ -211,12 +219,16 @@ with tab2:
                                     'sentiment_score': 0.0
                                 })
                             else:
-                                st.error("❌ Failed to generate prediction. Please try again.")
+                                st.error("❌ Failed to generate prediction. The model couldn't process the data.")
                         else:
-                            st.error("❌ Model training failed. Not enough data or data quality issue.")
+                            st.error("❌ Model training failed. The data quality may be insufficient or contains errors.")
                             
+                except NameError as ne:
+                    st.error(f"❌ Configuration error: {str(ne)}")
+                    st.info("💡 This error suggests a module configuration issue. Please check that all dependencies are installed correctly.")
                 except Exception as e:
-                    st.error(f"❌ An error occurred: {str(e)}")
+                    st.error(f"❌ An unexpected error occurred: {str(e)}")
+                    st.info("💡 Try selecting a different trading pair or refreshing the page.")
 
     with col2:
         st.info("**📚 Guide:**\n\n1️⃣ Click predict button\n\n2️⃣ AI analyzes 200 hours\n\n3️⃣ Get price forecast\n\n4️⃣ View market signal")
@@ -345,7 +357,13 @@ with tab4:
                 list(stats['sentiment_distribution'].items()),
                 columns=['Sentiment', 'Count']
             )
-            fig = px.pie(sentiment_df, values='Count', names='Sentiment')
+            fig = px.pie(sentiment_df, values='Count', names='Sentiment',
+                        color='Sentiment',
+                        color_discrete_map={
+                            'positive': '#2ecc71',  # Green
+                            'negative': '#e74c3c',  # Red
+                            'neutral': '#f39c12'    # Orange/Yellow
+                        })
             st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("### 📋 Recent Activity")
