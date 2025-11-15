@@ -1,6 +1,5 @@
 # app.py
-# Cleaned Streamlit dashboard that keeps your working coin logic
-# and restores visuals. Remove all debug/info prints from DataCollector.
+# Fixed Streamlit dashboard with proper volume display and error handling
 
 import streamlit as st
 import pandas as pd
@@ -44,7 +43,7 @@ selected_symbol = st.sidebar.selectbox(
 )
 
 auto_refresh = st.sidebar.checkbox("Auto Refresh", value=False)
-refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 10, 120, 60)
+refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 10, 120, 30)
 
 # Main title
 st.title(f"{config.APP_ICON} {config.APP_TITLE}")
@@ -55,7 +54,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🔮 Prediction", "💬 Sen
 
 # Tab 1: Dashboard
 with tab1:
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     # Fetch real-time price
     price_data = collector.get_realtime_price(selected_symbol)
@@ -65,24 +64,27 @@ with tab1:
             st.metric("Current Price", f"${price_data['price']:,.2f}")
 
         with col2:
-            # Fetch historical data for change calculation
-            hist_data = collector.get_historical_data(selected_symbol, '1h', 24)
-            if hist_data is not None and len(hist_data) > 1:
-                price_change = ((price_data['price'] - float(hist_data['close'].iloc[0])) /
-                              float(hist_data['close'].iloc[0])) * 100
-                st.metric("24h Change", f"{price_change:+.2f}%", 
-                         delta=f"{price_change:+.2f}%")
-            else:
-                st.metric("24h Change", "N/A")
+            change_24h = price_data.get('change_24h', 0)
+            st.metric("24h Change", f"{change_24h:+.2f}%", 
+                     delta=f"{change_24h:+.2f}%")
 
         with col3:
+            volume_24h = price_data.get('volume_24h', 0)
+            if volume_24h > 1_000_000_000:
+                st.metric("24h Volume", f"${volume_24h/1_000_000_000:.2f}B")
+            elif volume_24h > 1_000_000:
+                st.metric("24h Volume", f"${volume_24h/1_000_000:.2f}M")
+            else:
+                st.metric("24h Volume", f"${volume_24h:,.0f}")
+
+        with col4:
             st.metric("Last Updated", price_data['timestamp'].strftime("%H:%M:%S"))
     else:
-        st.warning("Unable to fetch live price at the moment. Try selecting a different symbol or check your connection.")
+        st.warning("⚠️ Unable to fetch live price. Retrying...")
 
     # Price chart
     st.subheader("📈 Price Chart")
-    hist_data = collector.get_historical_data(selected_symbol, '1h', 100)
+    hist_data = collector.get_historical_data(selected_symbol, '1h', 168)  # 7 days
 
     if hist_data is not None and not hist_data.empty:
         fig = go.Figure()
@@ -95,311 +97,234 @@ with tab1:
             name=selected_symbol
         ))
         fig.update_layout(
-            title=f"{selected_symbol} Price History",
-            yaxis_title="Price (USDT)",
+            title=f"{selected_symbol} Price History (7 Days)",
+            yaxis_title="Price (USD)",
             xaxis_title="Time",
-            height=500
+            height=500,
+            xaxis_rangeslider_visible=False
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Volume chart
-        fig_volume = px.bar(
-            hist_data, 
-            x='timestamp', 
-            y='volume',
-            title="Trading Volume"
-        )
-        fig_volume.update_layout(height=300)
-        st.plotly_chart(fig_volume, use_container_width=True)
+        # Volume chart with proper data
+        st.subheader("📊 Trading Volume")
+        if hist_data['volume'].sum() > 0:
+            fig_volume = go.Figure()
+            fig_volume.add_trace(go.Bar(
+                x=hist_data['timestamp'],
+                y=hist_data['volume'],
+                name="Volume",
+                marker_color='rgba(50, 171, 96, 0.7)'
+            ))
+            fig_volume.update_layout(
+                title="Trading Volume Over Time",
+                yaxis_title="Volume (USD)",
+                xaxis_title="Time",
+                height=300,
+                showlegend=False
+            )
+            st.plotly_chart(fig_volume, use_container_width=True)
+        else:
+            st.info("💡 Volume data is estimated. For real-time volume, check the 24h Volume metric above.")
     else:
-        st.info("Historical price data not available for the selected symbol.")
+        st.error("❌ Failed to load historical data. Please try again.")
 
 # Tab 2: Prediction
 with tab2:
     st.subheader("🔮 AI-Powered Price Prediction")
 
-    # Information banner
-    with st.expander("ℹ️ What am I seeing? Click to understand the prediction", expanded=False):
+    with st.expander("ℹ️ How does the prediction work?", expanded=False):
         st.markdown("""
-        ### 📊 Understanding Your Price Prediction
+        ### 📊 Understanding AI Price Prediction
         
-        This **AI-powered prediction engine** analyzes historical market data to forecast the next price movement for {}.
+        Our machine learning model analyzes:
+        - **200 hours** of historical price data
+        - **Technical indicators**: Moving averages, RSI, volatility
+        - **Price patterns**: Trends, momentum, support/resistance
+        - **Volume analysis**: Trading activity patterns
         
-        #### 🎯 What You're Seeing:
+        The **Random Forest algorithm** learns from past patterns to forecast the next hour's price.
         
-        **Current Price:** The live market price right now
-        
-        **Predicted Price:** Our AI's forecast for the next hour based on:
-        - Recent price movements and trends
-        - Trading volume patterns
-        - Market volatility indicators
-        - Moving averages (5, 10, 20 periods)
-        - Historical price relationships
-        
-        **Expected Change:** The percentage difference between current and predicted price
-        - 🟢 **Positive %** = Bullish signal (price expected to rise)
-        - 🔴 **Negative %** = Bearish signal (price expected to fall)
-        - ⚪ **Near 0%** = Neutral/Consolidation (sideways movement)
-        
-        #### 🤖 How It Works:
-        
-        1. **Data Collection:** Fetches 200 hours of historical price data
-        2. **Feature Engineering:** Calculates technical indicators (RSI-like signals, volatility, momentum)
-        3. **ML Training:** Random Forest algorithm learns patterns from past data
-        4. **Prediction:** AI forecasts the next probable price point
-        5. **Accuracy Score:** R² score shows model reliability (higher is better)
-        
-        #### ⚠️ Trading Advisory:
-        
-        - This is a **predictive tool**, not financial advice
-        - Predictions are based on technical analysis only
-        - Always combine with fundamental analysis and risk management
-        - Past performance doesn't guarantee future results
-        - Use stop-losses and proper position sizing
-        
-        #### 💡 Pro Tip:
-        Combine this prediction with the **Sentiment Analysis** tab for a complete view of market conditions!
-        """.format(selected_symbol))
+        ⚠️ **Disclaimer**: This is a predictive tool, not financial advice. Always do your own research!
+        """)
 
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        if st.button("🚀 Generate AI Prediction", type="primary"):
-            with st.spinner("🧠 Generating prediction..."):
-                hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
+        if st.button("🚀 Generate AI Prediction", type="primary", use_container_width=True):
+            with st.spinner("🧠 Training AI model and generating prediction..."):
+                try:
+                    hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
 
-                if hist_data is None or hist_data.empty:
-                    st.error("Failed to fetch sufficient historical data for prediction.")
-                else:
-                    # Train model
-                    score = predictor.train(hist_data)
+                    if hist_data is None or hist_data.empty:
+                        st.error("❌ Failed to fetch sufficient historical data. Please try again.")
+                    else:
+                        # Train model
+                        score = predictor.train(hist_data)
 
-                    if score is not None:
-                        st.success(f"Model trained. R²: {score:.4f}")
+                        if score is not None:
+                            st.success(f"✅ Model trained successfully! Accuracy (R²): {score:.4f}")
 
-                    prediction = predictor.predict_next_price(hist_data)
+                            # Make prediction
+                            prediction = predictor.predict_next_price(hist_data)
 
-                    if prediction:
-                        st.markdown("### 📊 Market Forecast")
+                            if prediction:
+                                st.markdown("### 📊 Market Forecast")
 
-                        col_a, col_b, col_c = st.columns(3)
-                        with col_a:
-                            st.metric("💰 Current Price", f"${prediction['current_price']:.2f}")
-                        with col_b:
-                            st.metric("🎯 AI Predicted Price", f"${prediction['predicted_price']:.2f}")
-                        with col_c:
-                            change = prediction['change_pct']
-                            if change > 0:
-                                signal = "📈 Bullish"
-                                color = "normal"
-                            elif change < 0:
-                                signal = "📉 Bearish"
-                                color = "inverse"
+                                col_a, col_b, col_c = st.columns(3)
+                                with col_a:
+                                    st.metric("💰 Current Price", f"${prediction['current_price']:,.2f}")
+                                with col_b:
+                                    st.metric("🎯 Predicted Price", f"${prediction['predicted_price']:,.2f}")
+                                with col_c:
+                                    change = prediction['change_pct']
+                                    if change > 0:
+                                        signal = "📈 Bullish"
+                                        color = "normal"
+                                    elif change < 0:
+                                        signal = "📉 Bearish"
+                                        color = "inverse"
+                                    else:
+                                        signal = "➡️ Neutral"
+                                        color = "off"
+
+                                    st.metric("📊 Signal", signal, delta=f"{change:+.2f}%", delta_color=color)
+
+                                # Trading signal
+                                st.markdown("---")
+                                if change > 1:
+                                    st.success(f"🟢 **STRONG BULLISH**: AI predicts **+{change:.2f}%** increase")
+                                elif change > 0.3:
+                                    st.success(f"🟢 **BULLISH**: AI predicts **+{change:.2f}%** increase")
+                                elif change < -1:
+                                    st.error(f"🔴 **STRONG BEARISH**: AI predicts **{change:.2f}%** decrease")
+                                elif change < -0.3:
+                                    st.error(f"🔴 **BEARISH**: AI predicts **{change:.2f}%** decrease")
+                                else:
+                                    st.info(f"⚪ **NEUTRAL**: AI predicts **{abs(change):.2f}%** movement")
+
+                                # Log prediction
+                                logger.log_prediction({
+                                    'symbol': selected_symbol,
+                                    'current_price': prediction['current_price'],
+                                    'predicted_price': prediction['predicted_price'],
+                                    'sentiment': 'N/A',
+                                    'sentiment_score': 0.0
+                                })
                             else:
-                                signal = "➡️ Neutral"
-                                color = "off"
-
-                            st.metric("📊 Market Signal", signal,
-                                    delta=f"{change:+.2f}%",
-                                    delta_color=color)
-
-                        # Trading signal
-                        st.markdown("---")
-                        if change > 0.5:
-                            st.success(f"🟢 **BULLISH SIGNAL:** AI predicts a **{change:.2f}% increase**.")
-                        elif change < -0.5:
-                            st.error(f"🔴 **BEARISH SIGNAL:** AI predicts a **{abs(change):.2f}% decrease**.")
+                                st.error("❌ Failed to generate prediction. Please try again.")
                         else:
-                            st.info(f"⚪ **NEUTRAL SIGNAL:** AI predicts **{abs(change):.2f}% movement**.")
-
-                        # Log prediction
-                        logger.log_prediction({
-                            'symbol': selected_symbol,
-                            'current_price': prediction['current_price'],
-                            'predicted_price': prediction['predicted_price'],
-                            'sentiment': 'N/A',
-                            'sentiment_score': 0.0
-                        })
+                            st.error("❌ Model training failed. Not enough data or data quality issue.")
+                            
+                except Exception as e:
+                    st.error(f"❌ An error occurred: {str(e)}")
 
     with col2:
-        st.info("**🎓 Quick Guide:** 1️⃣ Click 'Generate AI Prediction' 2️⃣ AI analyzes 200 hours of data 3️⃣ Get price forecast + market signal 4️⃣ See bullish/bearish/neutral outlook")
+        st.info("**📚 Guide:**\n\n1️⃣ Click predict button\n\n2️⃣ AI analyzes 200 hours\n\n3️⃣ Get price forecast\n\n4️⃣ View market signal")
 
 # Tab 3: Sentiment Analysis
 with tab3:
     st.subheader("💬 Market Sentiment Analysis")
 
-    # Information banner
-    with st.expander("ℹ️ What is Market Sentiment? Click to learn", expanded=False):
+    with st.expander("ℹ️ What is Market Sentiment?", expanded=False):
         st.markdown("""
-        ### 📰 Understanding Market Sentiment
+        ### 📰 Understanding Sentiment Analysis
         
-        **Market sentiment** is the overall attitude of investors toward a particular asset or market. It's the "mood" of the market.
+        **Market sentiment** = Overall investor mood toward an asset
         
-        #### 🎯 How Sentiment Affects Prices:
+        - 🟢 **Bullish** = Optimistic → Prices tend to rise
+        - 🔴 **Bearish** = Pessimistic → Prices tend to fall
+        - ⚪ **Neutral** = Uncertain → Sideways movement
         
-        - **🟢 Bullish (Positive):** Optimistic outlook → More buyers → Price tends to rise
-        - **🔴 Bearish (Negative):** Pessimistic outlook → More sellers → Price tends to fall  
-        - **⚪ Neutral (Uncertainty):** Mixed signals → Sideways movement → Wait-and-see mode
-        
-        #### 🧠 What This Tool Does:
-        
-        Our **AI Sentiment Engine** analyzes text from:
-        - News articles about crypto/stocks
-        - Social media discussions
-        - Market commentary
-        - Press releases
-        
-        It uses **dual NLP algorithms** (TextBlob + VADER) to determine if the text is bullish, bearish, or neutral.
-        
-        #### 📊 Understanding Your Results:
-        
-        **Sentiment Score:** Ranges from -1 (extremely bearish) to +1 (extremely bullish)
-        - **+0.5 to +1.0** = Strong Bullish 🟢
-        - **+0.1 to +0.5** = Mild Bullish 🟢
-        - **-0.1 to +0.1** = Neutral ⚪
-        - **-0.5 to -0.1** = Mild Bearish 🔴
-        - **-1.0 to -0.5** = Strong Bearish 🔴
-        
-        **Polarity:** How positive/negative the language is
-        
-        **VADER Score:** Specialized score for social media/informal text
-        
-        #### 💡 Trading Strategy:
-        
-        Smart traders combine **sentiment + technical analysis**:
-        1. Check this tab for market mood (bullish/bearish)
-        2. Check Prediction tab for AI price forecast
-        3. Make informed decisions with both signals aligned
-        
-        **Example:** If sentiment is bullish AND AI predicts price increase → Strong buy signal
+        Our AI analyzes text using NLP algorithms (TextBlob + VADER) to gauge market mood.
         """)
 
     user_input = st.text_area(
-        "📝 Paste market news, tweets, or analysis here:",
+        "📝 Paste news, tweets, or market analysis:",
         height=150,
         placeholder="Example: 'Bitcoin surges past $50K as institutional investors show strong interest...'")
 
     col1, col2 = st.columns([1, 3])
 
     with col1:
-        analyze_btn = st.button("🧠 Analyze Sentiment", type="primary")
+        analyze_btn = st.button("🧠 Analyze Sentiment", type="primary", use_container_width=True)
 
     if analyze_btn and user_input:
-        with st.spinner("🔍 Analyzing market sentiment..."):
-            result = analyzer.analyze_text(user_input)
+        with st.spinner("🔍 Analyzing sentiment..."):
+            try:
+                result = analyzer.analyze_text(user_input)
 
-            # Display results
-            st.markdown("### 📊 Sentiment Analysis Results")
+                st.markdown("### 📊 Sentiment Results")
+                col_a, col_b, col_c = st.columns(3)
 
-            col_a, col_b, col_c = st.columns(3)
-
-            with col_a:
-                sentiment = result['sentiment']
-                if sentiment == 'positive':
-                    display_sentiment = "🟢 Bullish"
-                    emoji = "😊📈"
-                elif sentiment == 'negative':
-                    display_sentiment = "🔴 Bearish"
-                    emoji = "😟📉"
-                else:
-                    display_sentiment = "⚪ Neutral"
-                    emoji = "😐➡️"
-
-                st.metric(
-                    "Market Sentiment",
-                    display_sentiment,
-                    help=f"{emoji} Investor mood indicator"
-                )
-
-            with col_b:
-                st.metric("Polarity Score", f"{result['polarity']:.3f}",
-                         help="Range: -1 (very negative) to +1 (very positive)")
-
-            with col_c:
-                st.metric("VADER Score", f"{result['vader_score']:.3f}",
-                         help="Social media sentiment strength")
-
-            # Market signal interpretation
-            st.markdown("---")
-            combined = result['combined_score']
-            if combined >= 0.5:
-                st.success("🟢 **STRONG BULLISH (Positive)** - Market sentiment is highly optimistic.")
-            elif combined >= 0.1:
-                st.success("🟢 **MILD BULLISH (Positive)** - Market sentiment is cautiously optimistic.")
-            elif combined <= -0.5:
-                st.error("🔴 **STRONG BEARISH (Negative)** - Market sentiment is highly pessimistic.")
-            elif combined <= -0.1:
-                st.error("🔴 **MILD BEARISH (Negative)** - Market sentiment is cautiously pessimistic.")
-            else:
-                st.info("⚪ **NEUTRAL (Uncertainty)** - Market sentiment is mixed.")
-
-            # Visualization
-            st.markdown("### 📈 Sentiment Gauge")
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=result['combined_score'],
-                domain={'x': [0, 1], 'y': [0, 1]},
-                gauge={
-                    'axis': {'range': [-1, 1]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [-1, -0.1], 'color': config.CHART_COLORS['negative']},
-                        {'range': [-0.1, 0.1], 'color': config.CHART_COLORS['neutral']},
-                        {'range': [0.1, 1], 'color': config.CHART_COLORS['positive']}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': result['combined_score']
+                with col_a:
+                    sentiment = result['sentiment']
+                    display_map = {
+                        'positive': "🟢 Bullish",
+                        'negative': "🔴 Bearish",
+                        'neutral': "⚪ Neutral"
                     }
-                },
-                title={'text': "Overall Market Sentiment"}
-            ))
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
+                    st.metric("Market Sentiment", display_map.get(sentiment, "⚪ Neutral"))
 
-            # Trading recommendation
-            st.markdown("### 💡 What This Means For Trading")
-            if result['sentiment'] == 'positive':
-                st.markdown("- ✅ Consider **long positions** (buying) - ✅ Good time to **hold existing positions** - ⚠️ Watch for **overextension** if too bullish - 💡 Combine with technical analysis for entry points")
-            elif result['sentiment'] == 'negative':
-                st.markdown("- ⚠️ Consider **short positions** or **selling** - ⚠️ Protect profits with **stop losses** - 💡 Wait for sentiment improvement before buying - 📊 Look for **oversold conditions** as reversal signals")
-            else:
-                st.markdown("- 📊 Market is in **consolidation phase** - ⏳ Wait for **clearer signals** before trading - 🎯 Good time for **range trading strategies**")
+                with col_b:
+                    st.metric("Polarity Score", f"{result['polarity']:.3f}")
 
-            # Log sentiment
-            price_data = collector.get_realtime_price(selected_symbol)
-            if price_data:
-                logger.log_prediction({
-                    'symbol': selected_symbol,
-                    'current_price': price_data['price'],
-                    'predicted_price': None,
-                    'sentiment': result['sentiment'],
-                    'sentiment_score': result['combined_score'],
-                    'user_input': user_input[:100]
-                })
+                with col_c:
+                    st.metric("VADER Score", f"{result['vader_score']:.3f}")
+
+                # Signal interpretation
+                st.markdown("---")
+                combined = result['combined_score']
+                if combined >= 0.5:
+                    st.success("🟢 **STRONG BULLISH** - Highly optimistic sentiment")
+                elif combined >= 0.1:
+                    st.success("🟢 **MILD BULLISH** - Cautiously optimistic")
+                elif combined <= -0.5:
+                    st.error("🔴 **STRONG BEARISH** - Highly pessimistic sentiment")
+                elif combined <= -0.1:
+                    st.error("🔴 **MILD BEARISH** - Cautiously pessimistic")
+                else:
+                    st.info("⚪ **NEUTRAL** - Mixed sentiment")
+
+                # Sentiment gauge
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=result['combined_score'],
+                    domain={'x': [0, 1], 'y': [0, 1]},
+                    gauge={
+                        'axis': {'range': [-1, 1]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [-1, -0.1], 'color': 'lightcoral'},
+                            {'range': [-0.1, 0.1], 'color': 'lightyellow'},
+                            {'range': [0.1, 1], 'color': 'lightgreen'}
+                        ]
+                    },
+                    title={'text': "Sentiment Score"}
+                ))
+                fig.update_layout(height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Log sentiment
+                price_data = collector.get_realtime_price(selected_symbol)
+                if price_data:
+                    logger.log_prediction({
+                        'symbol': selected_symbol,
+                        'current_price': price_data['price'],
+                        'predicted_price': None,
+                        'sentiment': result['sentiment'],
+                        'sentiment_score': result['combined_score']
+                    })
+                    
+            except Exception as e:
+                st.error(f"❌ Error analyzing sentiment: {str(e)}")
 
     elif analyze_btn and not user_input:
-        st.warning("⚠️ Please enter some text to analyze!")
-
-    # Sample texts for testing
-    with st.expander("📝 Try Sample Market Texts"):
-        st.markdown("""
-        **Bullish Example:**
-        "Bitcoin reaches new all-time high as institutional adoption accelerates..."
-        
-        **Bearish Example:**
-        "Cryptocurrency market crashes amid regulatory concerns..."
-        
-        **Neutral Example:**
-        "Bitcoin trading sideways around $40K. Market participants await Federal Reserve decision."
-        """)
+        st.warning("⚠️ Please enter text to analyze!")
 
 # Tab 4: Analytics
 with tab4:
     st.subheader("📈 Analytics & Logs")
 
-    # Statistics
     stats = logger.get_statistics()
 
     if stats:
@@ -409,51 +334,33 @@ with tab4:
             st.metric("Total Predictions", stats.get('total_predictions', 0))
 
         with col2:
-            st.metric("Avg Sentiment Score", 
-                     f"{stats.get('avg_sentiment_score', 0):.3f}")
+            st.metric("Avg Sentiment", f"{stats.get('avg_sentiment_score', 0):.3f}")
 
         with col3:
             st.metric("Most Tracked", stats.get('most_tracked_symbol', 'N/A'))
 
-        # Sentiment distribution
-        if 'sentiment_distribution' in stats:
+        if 'sentiment_distribution' in stats and stats['sentiment_distribution']:
             st.markdown("### Sentiment Distribution")
             sentiment_df = pd.DataFrame(
                 list(stats['sentiment_distribution'].items()),
                 columns=['Sentiment', 'Count']
             )
-            fig = px.pie(sentiment_df, values='Count', names='Sentiment',
-                        color='Sentiment',
-                        color_discrete_map={
-                            'positive': config.CHART_COLORS['positive'],
-                            'negative': config.CHART_COLORS['negative'],
-                            'neutral': config.CHART_COLORS['neutral']
-                        })
+            fig = px.pie(sentiment_df, values='Count', names='Sentiment')
             st.plotly_chart(fig, use_container_width=True)
 
-    # Recent logs
     st.markdown("### 📋 Recent Activity")
     logs = logger.get_logs(50)
 
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, height=400)
     else:
-        st.info("No activity logged yet. Start making predictions!")
+        st.info("No activity yet. Start making predictions!")
 
 # Footer
 st.markdown("---")
-st.markdown(
-    """
-    
-        Real-Time Stock Sentiment Predictor v1.0 | Built with Streamlit & ML
-    
-    """,
-    unsafe_allow_html=True
-)
+st.caption("Real-Time Crypto Sentiment Predictor v1.0 | Built with Streamlit & ML")
 
-# Auto-refresh logic
+# Auto-refresh
 if auto_refresh:
     time.sleep(refresh_interval)
     st.rerun()
-
-
