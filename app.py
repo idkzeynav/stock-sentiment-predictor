@@ -55,73 +55,8 @@ selected_symbol = st.sidebar.selectbox(
 )
 
 auto_refresh = st.sidebar.checkbox("Auto Refresh", value=False)
-refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 30, 300, 60)
-  
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔧 Debug Tools")
+refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 10, 120, 60)
 
-if st.sidebar.button("🔌 Test API Connection", use_container_width=True):
-    with st.spinner("Testing CoinGecko API..."):
-        try:
-            result = collector.test_connection()
-            if result:
-                st.sidebar.success("✅ API is working!")
-            else:
-                st.sidebar.error("❌ API connection failed")
-            
-            debug_info = collector.get_debug_info()
-            if debug_info:
-                with st.sidebar.expander("View Details"):
-                    st.code("\n".join(debug_info), language="text")
-        except Exception as e:
-            st.sidebar.error(f"❌ Error: {str(e)}")
-
-if st.sidebar.button("📊 Fetch Fresh Data", use_container_width=True):
-    with st.spinner(f"Fetching data for {selected_symbol}..."):
-        try:
-            # Clear cache first
-            st.cache_data.clear()
-            
-            # Fetch fresh data
-            hist = collector.get_historical_data(selected_symbol, '1h', 48)
-            
-            if hist is not None and not hist.empty:
-                st.sidebar.success(f"✅ Got {len(hist)} rows!")
-                
-                with st.sidebar.expander("📈 View Sample"):
-                    st.dataframe(hist.head(3), use_container_width=True)
-                    st.write(f"**Price:** ${hist['close'].iloc[-1]:,.2f}")
-                    st.write(f"**Range:** ${hist['close'].min():.2f} - ${hist['close'].max():.2f}")
-            else:
-                st.sidebar.error("❌ No data returned")
-            
-            debug_info = collector.get_debug_info()
-            if debug_info:
-                with st.sidebar.expander("🔍 Debug Log", expanded=True):
-                    st.code("\n".join(debug_info), language="text")
-                    
-        except Exception as e:
-            st.sidebar.error(f"❌ Error: {str(e)}")
-            import traceback
-            with st.sidebar.expander("Stack Trace"):
-                st.code(traceback.format_exc())
-
-st.sidebar.markdown("---")
-if st.sidebar.checkbox("📋 Show API Info"):
-    st.sidebar.info(f"""
-    **Symbol:** {selected_symbol}
-    **Coin ID:** {collector.coingecko_map.get(selected_symbol, 'Unknown')}
-    
-    **Rate Limits:**
-    - Delay: {collector.min_request_interval}s
-    - Max calls: 10-50/min
-    
-    **Caching:**
-    - Price: 30 seconds
-    - Historical: 5 minutes
-    
-    💡 Data is cached to avoid rate limits!
-    """)
 
 # Main title
 st.title(f"{config.APP_ICON} {config.APP_TITLE}")
@@ -212,27 +147,27 @@ with tab1:
     else:
         st.error("❌ Failed to load historical data. Click 'Fetch Fresh Data' in sidebar or wait for cache to expire.")
 
-    # Debug Panel
-    if hasattr(collector, 'get_debug_info'):
-        with st.expander("🔍 Debug Information", expanded=False):
-            st.markdown("### Recent API Activity")
+    # # Debug Panel
+    # if hasattr(collector, 'get_debug_info'):
+    #     with st.expander("🔍 Debug Information", expanded=False):
+    #         st.markdown("### Recent API Activity")
             
-            debug_info = collector.get_debug_info()
-            if debug_info and len(debug_info) > 0:
-                st.code("\n".join(debug_info[-30:]), language="text")
-            else:
-                st.info("No debug information available yet.")
+    #         debug_info = collector.get_debug_info()
+    #         if debug_info and len(debug_info) > 0:
+    #             st.code("\n".join(debug_info[-30:]), language="text")
+    #         else:
+    #             st.info("No debug information available yet.")
             
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("🔄 Refresh Debug Info"):
-                    st.rerun()
-            with col_b:
-                if st.button("🧹 Clear Debug Log"):
-                    if hasattr(collector, 'clear_debug_info'):
-                        collector.clear_debug_info()
-                        st.success("Debug log cleared!")
-                        st.rerun()
+    #         col_a, col_b = st.columns(2)
+    #         with col_a:
+    #             if st.button("🔄 Refresh Debug Info"):
+    #                 st.rerun()
+    #         with col_b:
+    #             if st.button("🧹 Clear Debug Log"):
+    #                 if hasattr(collector, 'clear_debug_info'):
+    #                     collector.clear_debug_info()
+    #                     st.success("Debug log cleared!")
+    #                     st.rerun()
 
 # Tab 2: Prediction
 with tab2:
