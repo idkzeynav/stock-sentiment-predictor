@@ -41,17 +41,20 @@ class DataCollector:
                 
                 # Debug: Show what we're requesting
                 st.info(f"🔍 Requesting: {url}")
+                st.write(f"**DEBUG URL:** {url}")  # More visible
                 
                 response = requests.get(url, timeout=10)
                 
                 # Debug: Show status code
                 st.info(f"📡 Status Code: {response.status_code}")
+                st.write(f"**DEBUG STATUS:** {response.status_code}")
                 
                 response.raise_for_status()  # Raise error for bad status
                 
                 # Debug: Show raw response
                 raw_data = response.text
                 st.info(f"📡 Raw API Response: {raw_data}")
+                st.write(f"**DEBUG RAW RESPONSE:** {raw_data}")
                 
                 data = response.json()
                 
@@ -117,6 +120,7 @@ class DataCollector:
         """Fetch historical klines data"""
         try:
             if self.use_api and self.client:
+                st.info(f"🔐 Using authenticated client for historical data")
                 # Use authenticated client
                 klines = self.client.get_klines(
                     symbol=symbol,
@@ -131,14 +135,37 @@ class DataCollector:
                     'interval': interval,
                     'limit': limit
                 }
+                st.info(f"🔍 Fetching historical data from: {url}")
+                st.info(f"📊 Parameters: {params}")
+                
                 response = requests.get(url, params=params, timeout=10)
+                
+                st.info(f"📡 Status Code: {response.status_code}")
+                
+                response.raise_for_status()
+                
                 klines = response.json()
+                
+                st.info(f"📊 Received {len(klines)} candles from API")
+                
+                # Check if response is an error
+                if isinstance(klines, dict) and 'code' in klines:
+                    st.error(f"❌ API Error: {klines}")
+                    return None
+            
+            if not klines or len(klines) == 0:
+                st.error("❌ No historical data returned from API")
+                return None
+            
+            st.info(f"✅ Processing {len(klines)} candles...")
             
             df = pd.DataFrame(klines, columns=[
                 'timestamp', 'open', 'high', 'low', 'close', 
                 'volume', 'close_time', 'quote_volume', 'trades',
                 'taker_base', 'taker_quote', 'ignore'
             ])
+            
+            st.info(f"📊 DataFrame created with shape: {df.shape}")
             
             # Convert timestamp
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -150,12 +177,28 @@ class DataCollector:
             df['close'] = pd.to_numeric(df['close'], errors='coerce')
             df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
             
+            st.info(f"📊 Before dropna: {len(df)} rows")
+            
             # Remove any rows with NaN values
             df = df.dropna()
             
-            return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            st.info(f"📊 After dropna: {len(df)} rows")
+            
+            result_df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            
+            st.success(f"✅ Returning {len(result_df)} rows of clean data")
+            
+            return result_df
+            
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Network error fetching historical data: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
+            return None
         except Exception as e:
-            st.error(f"Error fetching historical data: {e}")
+            st.error(f"❌ Error fetching historical data: {type(e).__name__}: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             return None
     
     def get_market_depth(self, symbol):
