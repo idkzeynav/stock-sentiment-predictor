@@ -45,6 +45,43 @@ selected_symbol = st.sidebar.selectbox(
 auto_refresh = st.sidebar.checkbox("Auto Refresh", value=False)
 refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 10, 120, 30)
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔧 Debug Tools")
+
+if st.sidebar.button("Test API Connection"):
+    with st.spinner("Testing CoinGecko API..."):
+        if collector.test_connection():
+            st.sidebar.success("✅ API is working!")
+        else:
+            st.sidebar.error("❌ API connection failed")
+
+if st.sidebar.button("Test Data Fetch"):
+    with st.spinner("Fetching test data..."):
+        # Test real-time price
+        price = collector.get_realtime_price(selected_symbol)
+        if price:
+            st.sidebar.success(f"✅ Real-time price: ${price['price']:,.2f}")
+        else:
+            st.sidebar.error("❌ Failed to fetch price")
+        
+        # Test historical data
+        hist = collector.get_historical_data(selected_symbol, '1h', 24)
+        if hist is not None and not hist.empty:
+            st.sidebar.success(f"✅ Historical data: {len(hist)} rows")
+            st.sidebar.write("Sample data:")
+            st.sidebar.dataframe(hist.head(3))
+        else:
+            st.sidebar.error("❌ Failed to fetch historical data")
+
+if st.sidebar.checkbox("Show Detailed Logs"):
+    st.sidebar.info("""
+    **Check your terminal/console for detailed logs**
+    
+    Look for:
+    - API response codes
+    - Rate limiting messages
+    - Data validation errors
+    """)
 # Main title
 st.title(f"{config.APP_ICON} {config.APP_TITLE}")
 st.markdown("---")
