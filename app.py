@@ -45,6 +45,92 @@ selected_symbol = st.sidebar.selectbox(
 auto_refresh = st.sidebar.checkbox("Auto Refresh", value=False)
 refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 10, 120, 30)
   
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔧 Debug Tools")
+
+if st.sidebar.button("🔌 Test API Connection", use_container_width=True):
+    with st.spinner("Testing CoinGecko API..."):
+        try:
+            result = collector.test_connection()
+            if result:
+                st.sidebar.success("✅ API is working!")
+            else:
+                st.sidebar.error("❌ API connection failed")
+            
+            # Show debug messages
+            debug_info = collector.get_debug_info()
+            if debug_info:
+                with st.sidebar.expander("View Details"):
+                    st.code("\n".join(debug_info), language="text")
+        except Exception as e:
+            st.sidebar.error(f"❌ Error: {str(e)}")
+
+if st.sidebar.button("📊 Test Historical Data", use_container_width=True):
+    with st.spinner(f"Fetching data for {selected_symbol}..."):
+        try:
+            # Test with smaller limit first
+            hist = collector.get_historical_data(selected_symbol, '1h', 24)
+            
+            if hist is not None and not hist.empty:
+                st.sidebar.success(f"✅ Got {len(hist)} rows")
+                
+                with st.sidebar.expander("📈 View Sample"):
+                    st.dataframe(hist.head(3), use_container_width=True)
+                    st.write("**Statistics:**")
+                    st.write(f"- Price range: ${hist['close'].min():.2f} - ${hist['close'].max():.2f}")
+                    st.write(f"- Avg volume: ${hist['volume'].mean():.2f}")
+            else:
+                st.sidebar.error("❌ No data returned")
+            
+            # Always show debug info
+            debug_info = collector.get_debug_info()
+            if debug_info:
+                with st.sidebar.expander("🔍 Debug Log"):
+                    st.code("\n".join(debug_info), language="text")
+                    
+        except Exception as e:
+            st.sidebar.error(f"❌ Error: {str(e)}")
+            import traceback
+            with st.sidebar.expander("Full Error"):
+                st.code(traceback.format_exc())
+
+if st.sidebar.button("💰 Test Real-time Price", use_container_width=True):
+    with st.spinner("Fetching price..."):
+        try:
+            price = collector.get_realtime_price(selected_symbol)
+            
+            if price:
+                st.sidebar.success(f"✅ ${price['price']:,.2f}")
+                st.sidebar.write(f"24h Volume: ${price['volume_24h']:,.0f}")
+                st.sidebar.write(f"24h Change: {price['change_24h']:+.2f}%")
+            else:
+                st.sidebar.error("❌ Failed to fetch price")
+            
+            # Show debug info
+            debug_info = collector.get_debug_info()
+            if debug_info:
+                with st.sidebar.expander("🔍 Debug Log"):
+                    st.code("\n".join(debug_info), language="text")
+                    
+        except Exception as e:
+            st.sidebar.error(f"❌ Error: {str(e)}")
+
+st.sidebar.markdown("---")
+if st.sidebar.checkbox("📋 Show API Info"):
+    st.sidebar.info("""
+    **CoinGecko Free Tier Limits:**
+    - 10-50 calls per minute
+    - 2 second delay between calls
+    - Max 365 days history
+    - Hourly data up to 90 days
+    
+    **Current Symbol:** {symbol}
+    **Coin ID:** {coin_id}
+    """.format(
+        symbol=selected_symbol,
+        coin_id=collector.coingecko_map.get(selected_symbol, "Unknown")
+    ))
+
 # Main title
 st.title(f"{config.APP_ICON} {config.APP_TITLE}")
 st.markdown("---")
@@ -134,6 +220,23 @@ with tab1:
     else:
         st.error("❌ Failed to load historical data. Please try again.")
 
+     # Debug Panel - Shows what's happening with API calls
+    with st.expander("🔍 Debug Information", expanded=False):
+        st.markdown("### Recent API Activity")
+        
+        debug_info = collector.get_debug_info()
+        if debug_info:
+            st.code("\n".join(debug_info[-20:]), language="text")  # Show last 20 messages
+        else:
+            st.info("No debug information available yet. Data will appear after API calls.")
+        
+        if st.button("🔄 Refresh Debug Info"):
+            st.rerun()
+        
+        if st.button("🧹 Clear Debug Log"):
+            collector.clear_debug_info()
+            st.success("Debug log cleared!")
+            st.rerun()
 # Tab 2: Prediction
 with tab2:
     st.subheader("🔮 AI-Powered Price Prediction")
