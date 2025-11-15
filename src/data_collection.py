@@ -1,5 +1,5 @@
 # src/data_collection.py
-# Fixed for CoinGecko FREE tier (no interval parameter)
+# CoinGecko FREE tier only - no paid features
 
 import requests
 import pandas as pd
@@ -30,8 +30,8 @@ class DataCollector:
             'LTCUSDT': 'litecoin'
         }
         self.last_request_time = 0
-        self.min_request_interval = 2.5
-        self.max_retries = 3
+        self.min_request_interval = 3.0  # 3 seconds to be safe
+        self.max_retries = 2  # Reduced retries
         self.debug_log = []
         
         logger.info("DataCollector initialized (Free tier mode)")
@@ -104,7 +104,7 @@ class DataCollector:
                 response = requests.get(url, params=params, timeout=15)
 
                 if response.status_code == 429:
-                    wait_time = 20 * (attempt + 1)
+                    wait_time = 30 * (attempt + 1)
                     self._add_debug(f"⚠️ Rate limited! Waiting {wait_time}s")
                     time.sleep(wait_time)
                     continue
@@ -134,7 +134,7 @@ class DataCollector:
             except Exception as e:
                 self._add_debug(f"❌ Attempt {attempt + 1} failed: {str(e)}")
                 if attempt < self.max_retries - 1:
-                    time.sleep(3 * (attempt + 1))
+                    time.sleep(5 * (attempt + 1))
         
         self._add_debug("❌ All attempts failed for realtime price")
         return None
@@ -142,9 +142,12 @@ class DataCollector:
     def get_historical_data(self, symbol, interval='1h', limit=100):
         """
         Fetch historical data from CoinGecko FREE tier
-        Note: Free tier doesn't support interval parameter, so we get what we can
+        Free tier granularity (automatic):
+        - 1 day = 5-minute intervals
+        - 2-90 days = hourly intervals (but we need 2+ days)
+        - 91+ days = daily intervals
         """
-        self._add_debug(f"=== Starting historical data fetch for {symbol} ===")
+        self._add_debug(f"=== Fetching historical data for {symbol} ===")
         
         for attempt in range(self.max_retries):
             try:
@@ -154,22 +157,15 @@ class DataCollector:
 
                 coin_id = self.coingecko_map[symbol]
                 
-                # Free tier gives us automatic granularity based on days:
-                # 1 day = 5 minute intervals (288 points)
-                # 2-90 days = hourly intervals
-                # 91+ days = daily intervals
-                
-                # For hourly data, request 2-7 days (free tier will give hourly automatically)
+                # Calculate days needed for free tier
+                # Free tier: 2-90 days gives hourly data automatically
                 hours_needed = int(limit)
                 
-                if hours_needed <= 24:
-                    days_needed = 1  # Will get 5-min data, we'll resample
-                elif hours_needed <= 168:  # 7 days
-                    days_needed = max(2, (hours_needed // 24) + 1)
-                else:
-                    days_needed = min(90, (hours_needed // 24) + 1)  # Max 90 for hourly
+                # Always request at least 2 days to get hourly granularity
+                # Free tier automatically gives hourly data for 2-90 days
+                days_needed = max(2, min(90, (hours_needed // 24) + 1))
                 
-                self._add_debug(f"Requesting {days_needed} days (for ~{hours_needed} hours) - attempt {attempt + 1}")
+                self._add_debug(f"Requesting {days_needed} days (need ~{hours_needed} hours) - attempt {attempt + 1}")
                 
                 self._rate_limit()
 
@@ -177,30 +173,29 @@ class DataCollector:
                 params = {
                     'vs_currency': 'usd',
                     'days': days_needed
-                    # NO interval parameter for free tier!
+                    # NO interval parameter - it's a paid feature!
                 }
                 
                 self._add_debug(f"URL: {url}")
-                self._add_debug(f"Params: days={days_needed} (free tier auto-granularity)")
+                self._add_debug(f"Params: days={days_needed} (auto-hourly granularity for 2-90 days)")
 
                 response = requests.get(url, params=params, timeout=20)
                 self._add_debug(f"Response status: {response.status_code}")
 
                 if response.status_code == 429:
-                    wait_time = 25 * (attempt + 1)
+                    wait_time = 30 * (attempt + 1)
                     self._add_debug(f"⚠️ Rate limited! Waiting {wait_time}s")
                     time.sleep(wait_time)
                     continue
 
                 if response.status_code == 401:
-                    self._add_debug(f"❌ Unauthorized (401) - API may require authentication")
-                    self._add_debug(f"Response: {response.text[:200]}")
+                    self._add_debug(f"❌ Unauthorized (401) - using paid feature or API key issue")
                     return None
 
                 if response.status_code != 200:
                     self._add_debug(f"❌ HTTP {response.status_code}: {response.text[:200]}")
                     if attempt < self.max_retries - 1:
-                        time.sleep(5 * (attempt + 1))
+                        time.sleep(10)
                         continue
                     return None
 
@@ -220,72 +215,64 @@ class DataCollector:
                 self._add_debug(f"✅ Received {len(prices)} price points, {len(volumes)} volume points")
 
                 # Build DataFrame
-                df_price = pd.DataFrame(prices, columns=['timestamp', 'close'])
+                df = pd.DataFrame(prices, columns=['timestamp', 'close'])
                 
-                if volumes:
-                    df_volume = pd.DataFrame(volumes, columns=['timestamp', 'volume'])
-                    df = pd.merge(df_price, df_volume, on='timestamp', how='left')
+                # Add volumes if available
+                if volumes and len(volumes) == len(prices):
+                    df['volume'] = [v[1] for v in volumes]
                 else:
-                    df = df_price.copy()
                     df['volume'] = 0
                 
+                # Convert timestamp
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                 
-                # If we got 5-min data but need hourly, resample
-                if days_needed == 1 and len(df) > 100:
-                    self._add_debug(f"Resampling {len(df)} 5-min points to hourly data")
-                    df = df.set_index('timestamp')
-                    df_resampled = df.resample('1H').agg({
-                        'close': 'last',
-                        'volume': 'sum'
-                    }).reset_index()
-                    df_resampled['open'] = df.resample('1H')['close'].first().values
-                    df_resampled['high'] = df.resample('1H')['close'].max().values
-                    df_resampled['low'] = df.resample('1H')['close'].min().values
-                    df = df_resampled
-                    self._add_debug(f"Resampled to {len(df)} hourly points")
-                else:
-                    # Create OHLC from close prices
-                    df['open'] = df['close'].shift(1).fillna(df['close'])
-                    df['high'] = df[['open', 'close']].max(axis=1) * 1.002
-                    df['low'] = df[['open', 'close']].min(axis=1) * 0.998
+                self._add_debug(f"Data spans: {df['timestamp'].min()} to {df['timestamp'].max()}")
                 
-                df['volume'] = df['volume'].fillna(0)
+                # Create OHLC data from close prices (simple approximation)
+                df['open'] = df['close'].shift(1).fillna(df['close'])
+                df['high'] = df[['open', 'close']].max(axis=1) * 1.001
+                df['low'] = df[['open', 'close']].min(axis=1) * 0.999
                 
-                # Convert to numeric
+                # Ensure numeric types
                 numeric_cols = ['open', 'high', 'low', 'close', 'volume']
                 for col in numeric_cols:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
                 
-                df = df.dropna(subset=['close'])  # Keep rows with valid close price
+                # Remove any NaN rows
+                before_drop = len(df)
+                df = df.dropna(subset=['close'])
+                after_drop = len(df)
+                
+                if before_drop != after_drop:
+                    self._add_debug(f"⚠️ Dropped {before_drop - after_drop} rows with NaN")
                 
                 if len(df) < 10:
                     self._add_debug(f"❌ Only {len(df)} valid rows after cleaning")
-                    if attempt < self.max_retries - 1:
-                        continue
                     return None
                 
-                # Take most recent rows
+                # Take most recent rows up to limit
                 if len(df) > limit:
                     df = df.tail(limit)
+                    self._add_debug(f"Trimmed to {limit} most recent rows")
                 
+                # Final column order
                 df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
                 df = df.reset_index(drop=True)
                 
                 self._add_debug(f"✅ Returning {len(df)} rows")
                 self._add_debug(f"Price range: ${df['close'].min():.2f} - ${df['close'].max():.2f}")
-                self._add_debug(f"Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
                 
                 return df
 
             except Exception as e:
                 self._add_debug(f"❌ Exception in attempt {attempt + 1}: {type(e).__name__}: {str(e)}")
+                import traceback
+                self._add_debug(f"Traceback: {traceback.format_exc()[:300]}")
                 if attempt < self.max_retries - 1:
-                    time.sleep(5 * (attempt + 1))
-                continue
+                    time.sleep(10)
+                    continue
         
-        self._add_debug("❌ All attempts exhausted - returning None")
+        self._add_debug("❌ All attempts exhausted")
         return None
 
     def get_market_depth(self, symbol):
