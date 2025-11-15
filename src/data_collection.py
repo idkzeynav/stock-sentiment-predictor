@@ -89,9 +89,16 @@ class DataCollector:
             
             coin_id = self.coingecko_map[symbol]
             
-            # Calculate days needed (max 90 days for OHLC)
+            # CoinGecko OHLC only accepts: 1, 7, 14, 30, 90, 180, 365 days
+            # Map requested limit to valid days
             hours_needed = limit
-            days = min(90, max(1, hours_needed // 24 + 1))
+            days_needed = hours_needed // 24 + 1
+            
+            # Choose closest valid day value
+            valid_days = [1, 7, 14, 30, 90, 180, 365]
+            days = min(valid_days, key=lambda x: abs(x - days_needed))
+            
+            st.info(f"📊 Requested {limit} hours ≈ {days_needed} days, using {days} days")
             
             # Use OHLC endpoint (no auth required)
             url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc"
@@ -112,21 +119,31 @@ class DataCollector:
                 time.sleep(60)
                 response = requests.get(url, params=params, timeout=15)
             
-            response.raise_for_status()
+            if response.status_code != 200:
+                st.error(f"❌ API Error: Status {response.status_code}")
+                st.error(f"Response: {response.text}")
+                return None
             
             data = response.json()
             
             st.info(f"📊 Raw response type: {type(data)}")
-            st.info(f"📊 Received {len(data) if isinstance(data, list) else 0} candles")
             
-            if not isinstance(data, list) or len(data) == 0:
-                st.error(f"❌ Invalid or empty response: {data}")
+            if not isinstance(data, list):
+                st.error(f"❌ Expected list, got {type(data)}: {data}")
+                return None
+            
+            st.info(f"📊 Received {len(data)} candles from API")
+            
+            if len(data) == 0:
+                st.error("❌ No data returned from API")
                 return None
             
             # CoinGecko OHLC format: [timestamp, open, high, low, close]
             df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df['volume'] = 1000000  # Placeholder volume
+            
+            st.info(f"📊 DataFrame shape before processing: {df.shape}")
             
             # Convert to float
             df['open'] = pd.to_numeric(df['open'], errors='coerce')
@@ -138,8 +155,11 @@ class DataCollector:
             # Remove NaN
             df = df.dropna()
             
-            # Take only the requested number of rows
-            df = df.tail(limit)
+            st.info(f"📊 DataFrame shape after dropna: {df.shape}")
+            
+            # Take only the requested number of rows (from the end)
+            if len(df) > limit:
+                df = df.tail(limit)
             
             # Reorder columns
             df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
