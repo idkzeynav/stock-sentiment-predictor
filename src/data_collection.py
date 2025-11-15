@@ -51,6 +51,13 @@ class DataCollector:
             
             st.info(f"📡 Status Code: {response.status_code}")
             
+            # Handle rate limit
+            if response.status_code == 429:
+                st.warning("⚠️ Rate limit reached. Waiting 60 seconds...")
+                time.sleep(60)
+                response = requests.get(url, params=params, timeout=10)
+                st.info(f"📡 Retry Status Code: {response.status_code}")
+            
             response.raise_for_status()
             
             data = response.json()
@@ -64,6 +71,9 @@ class DataCollector:
             price = float(data[coin_id]['usd'])
             
             st.success(f"✅ Price fetched successfully: ${price:,.2f}")
+            
+            # Add small delay to avoid rate limiting
+            time.sleep(1)
             
             return {
                 'symbol': symbol,
