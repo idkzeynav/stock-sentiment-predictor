@@ -220,23 +220,27 @@ with tab1:
     else:
         st.error("❌ Failed to load historical data. Please try again.")
 
-     # Debug Panel - Shows what's happening with API calls
-    with st.expander("🔍 Debug Information", expanded=False):
-        st.markdown("### Recent API Activity")
-        
-        debug_info = collector.get_debug_info()
-        if debug_info:
-            st.code("\n".join(debug_info[-20:]), language="text")  # Show last 20 messages
-        else:
-            st.info("No debug information available yet. Data will appear after API calls.")
-        
-        if st.button("🔄 Refresh Debug Info"):
-            st.rerun()
-        
-        if st.button("🧹 Clear Debug Log"):
-            collector.clear_debug_info()
-            st.success("Debug log cleared!")
-            st.rerun()
+      # Debug Panel
+    if hasattr(collector, 'get_debug_info'):
+        with st.expander("🔍 Debug Information", expanded=False):
+            st.markdown("### Recent API Activity")
+            
+            debug_info = collector.get_debug_info()
+            if debug_info and len(debug_info) > 0:
+                st.code("\n".join(debug_info[-30:]), language="text")  # Last 30 messages
+            else:
+                st.info("No debug information available yet.")
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("🔄 Refresh Debug Info"):
+                    st.rerun()
+            with col_b:
+                if st.button("🧹 Clear Debug Log"):
+                    if hasattr(collector, 'clear_debug_info'):
+                        collector.clear_debug_info()
+                        st.success("Debug log cleared!")
+                        st.rerun()
 # Tab 2: Prediction
 with tab2:
     st.subheader("🔮 AI-Powered Price Prediction")
