@@ -81,7 +81,7 @@ class DataCollector:
             return None
     
     def get_historical_data(self, symbol, interval='1h', limit=100):
-        """Fetch historical data from CoinGecko"""
+        """Fetch historical data from CoinGecko OHLC endpoint"""
         try:
             if symbol not in self.coingecko_map:
                 st.error(f"❌ Symbol {symbol} not supported")
@@ -89,45 +89,54 @@ class DataCollector:
             
             coin_id = self.coingecko_map[symbol]
             
-            # Calculate days needed
+            # Calculate days needed (max 90 days for OHLC)
             hours_needed = limit
-            days = max(1, hours_needed // 24 + 1)
+            days = min(90, max(1, hours_needed // 24 + 1))
             
-            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+            # Use OHLC endpoint (no auth required)
+            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc"
             params = {
                 'vs_currency': 'usd',
-                'days': days,
-                'interval': 'hourly' if interval == '1h' else 'daily'
+                'days': days
             }
             
             st.info(f"🔍 Fetching historical data from: {url}")
             st.info(f"📊 Parameters: {params}")
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=15)
             
             st.info(f"📡 Status Code: {response.status_code}")
+            
+            if response.status_code == 429:
+                st.warning("⚠️ Rate limit hit, waiting 60 seconds...")
+                time.sleep(60)
+                response = requests.get(url, params=params, timeout=15)
             
             response.raise_for_status()
             
             data = response.json()
             
-            if 'prices' not in data:
-                st.error(f"❌ Invalid response: {data}")
+            st.info(f"📊 Raw response type: {type(data)}")
+            st.info(f"📊 Received {len(data) if isinstance(data, list) else 0} candles")
+            
+            if not isinstance(data, list) or len(data) == 0:
+                st.error(f"❌ Invalid or empty response: {data}")
                 return None
             
-            prices = data['prices']
-            
-            st.info(f"📊 Received {len(prices)} price points")
-            
-            # Convert to DataFrame
-            df = pd.DataFrame(prices, columns=['timestamp', 'close'])
+            # CoinGecko OHLC format: [timestamp, open, high, low, close]
+            df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df['volume'] = 1000000  # Placeholder volume
             
-            # CoinGecko only gives prices, so we'll simulate OHLC
-            df['open'] = df['close']
-            df['high'] = df['close'] * 1.001  # Simulate with small variance
-            df['low'] = df['close'] * 0.999
-            df['volume'] = 0  # CoinGecko free API doesn't include volume
+            # Convert to float
+            df['open'] = pd.to_numeric(df['open'], errors='coerce')
+            df['high'] = pd.to_numeric(df['high'], errors='coerce')
+            df['low'] = pd.to_numeric(df['low'], errors='coerce')
+            df['close'] = pd.to_numeric(df['close'], errors='coerce')
+            df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+            
+            # Remove NaN
+            df = df.dropna()
             
             # Take only the requested number of rows
             df = df.tail(limit)
@@ -141,6 +150,7 @@ class DataCollector:
             
         except requests.exceptions.RequestException as e:
             st.error(f"❌ Network error: {e}")
+            st.error(f"Response text: {e.response.text if hasattr(e, 'response') else 'N/A'}")
             import traceback
             st.error(f"Traceback: {traceback.format_exc()}")
             return None
