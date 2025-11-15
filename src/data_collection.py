@@ -27,7 +27,9 @@ class DataCollector:
         """Fetch current price for a trading pair"""
         try:
             if self.use_api and self.client:
+                st.info("🔐 Using authenticated Binance client")
                 ticker = self.client.get_symbol_ticker(symbol=symbol)
+                st.info(f"📊 Client response: {ticker}")
                 return {
                     'symbol': symbol,
                     'price': float(ticker['price']),
@@ -41,40 +43,69 @@ class DataCollector:
                 st.info(f"🔍 Requesting: {url}")
                 
                 response = requests.get(url, timeout=10)
+                
+                # Debug: Show status code
+                st.info(f"📡 Status Code: {response.status_code}")
+                
                 response.raise_for_status()  # Raise error for bad status
                 
                 # Debug: Show raw response
                 raw_data = response.text
-                st.info(f"📡 Raw API Response: {raw_data[:200]}")
+                st.info(f"📡 Raw API Response: {raw_data}")
                 
                 data = response.json()
                 
                 # Debug: Show parsed data type and content
                 st.info(f"📊 Response type: {type(data)}")
-                st.info(f"📊 Response content: {data}")
+                st.info(f"📊 Is dict? {isinstance(data, dict)}")
+                st.info(f"📊 Is list? {isinstance(data, list)}")
                 
                 # Handle both dict and list responses
                 if isinstance(data, list):
+                    st.info(f"📊 List length: {len(data)}")
                     if len(data) == 0:
-                        st.error("API returned empty list")
+                        st.error("❌ API returned empty list")
                         return None
+                    # Take first item if list
                     data = data[0]
+                    st.info(f"📊 Extracted from list: {data}")
+                
+                # Ensure data is a dict now
+                if not isinstance(data, dict):
+                    st.error(f"❌ Expected dict, got {type(data)}")
+                    st.error(f"Data: {data}")
+                    return None
+                
+                # Show available keys
+                st.info(f"📊 Available keys: {list(data.keys())}")
                 
                 # Check if 'price' key exists
                 if 'price' not in data:
-                    st.error(f"❌ 'price' key not found. Available keys: {list(data.keys())}")
+                    st.error(f"❌ 'price' key not found!")
+                    st.error(f"Full response: {data}")
                     return None
+                
+                # Successfully got price
+                price = float(data['price'])
+                st.success(f"✅ Price fetched successfully: ${price:,.2f}")
                 
                 return {
                     'symbol': symbol,
-                    'price': float(data['price']),
+                    'price': price,
                     'timestamp': datetime.now()
                 }
+                
+        except requests.exceptions.HTTPError as e:
+            st.error(f"❌ HTTP Error: {e}")
+            st.error(f"Response: {e.response.text if hasattr(e, 'response') else 'No response'}")
+            return None
         except requests.exceptions.RequestException as e:
             st.error(f"❌ Network error: {e}")
             return None
         except (KeyError, ValueError, TypeError) as e:
-            st.error(f"❌ Error parsing data: {e}")
+            st.error(f"❌ Error parsing data: {type(e).__name__}: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             return None
         except Exception as e:
             st.error(f"❌ Unexpected error: {type(e).__name__}: {e}")
