@@ -1,3 +1,7 @@
+# app.py
+# Cleaned Streamlit dashboard that keeps your working coin logic
+# and restores visuals. Remove all debug/info prints from DataCollector.
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -49,36 +53,38 @@ st.markdown("---")
 # Create tabs
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🔮 Prediction", "💬 Sentiment", "📈 Analytics"])
 
-#Tab 1: Dashboard
+# Tab 1: Dashboard
 with tab1:
     col1, col2, col3 = st.columns(3)
-    
+
     # Fetch real-time price
     price_data = collector.get_realtime_price(selected_symbol)
-    
+
     if price_data:
         with col1:
             st.metric("Current Price", f"${price_data['price']:,.2f}")
-        
+
         with col2:
             # Fetch historical data for change calculation
             hist_data = collector.get_historical_data(selected_symbol, '1h', 24)
             if hist_data is not None and len(hist_data) > 1:
-                price_change = ((price_data['price'] - float(hist_data['close'].iloc[0])) / 
+                price_change = ((price_data['price'] - float(hist_data['close'].iloc[0])) /
                               float(hist_data['close'].iloc[0])) * 100
                 st.metric("24h Change", f"{price_change:+.2f}%", 
                          delta=f"{price_change:+.2f}%")
             else:
                 st.metric("24h Change", "N/A")
-        
+
         with col3:
             st.metric("Last Updated", price_data['timestamp'].strftime("%H:%M:%S"))
-    
+    else:
+        st.warning("Unable to fetch live price at the moment. Try selecting a different symbol or check your connection.")
+
     # Price chart
     st.subheader("📈 Price Chart")
     hist_data = collector.get_historical_data(selected_symbol, '1h', 100)
-    
-    if hist_data is not None:
+
+    if hist_data is not None and not hist_data.empty:
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
             x=hist_data['timestamp'],
@@ -95,9 +101,8 @@ with tab1:
             height=500
         )
         st.plotly_chart(fig, use_container_width=True)
-    
-    # Volume chart
-    if hist_data is not None:
+
+        # Volume chart
         fig_volume = px.bar(
             hist_data, 
             x='timestamp', 
@@ -106,48 +111,13 @@ with tab1:
         )
         fig_volume.update_layout(height=300)
         st.plotly_chart(fig_volume, use_container_width=True)
-
-# # Tab 1: Dashboard
-# with tab1:
-#     col1, col2, col3 = st.columns(3)
-    
-#     # ADD DEBUG - Show what's happening
-#     st.write("**🔍 DEBUG: Attempting to fetch price...**")
-#     st.write(f"**Symbol:** {selected_symbol}")
-    
-#     # Fetch real-time price
-#     price_data = collector.get_realtime_price(selected_symbol)
-    
-#     # ADD DEBUG - Show what we got
-#     st.write(f"**📊 DEBUG: price_data = {price_data}**")
-#     st.write(f"**📊 DEBUG: price_data type = {type(price_data)}**")
-    
-#     if price_data:
-#         st.success("✅ Price fetched successfully!")
-#         with col1:
-#             st.metric("Current Price", f"${price_data['price']:,.2f}")
-        
-#         with col2:
-#             # Fetch historical data for change calculation
-#             hist_data = collector.get_historical_data(selected_symbol, '1h', 24)
-#             if hist_data is not None and len(hist_data) > 1:
-#                 price_change = ((price_data['price'] - float(hist_data['close'].iloc[0])) / 
-#                               float(hist_data['close'].iloc[0])) * 100
-#                 st.metric("24h Change", f"{price_change:+.2f}%", 
-#                          delta=f"{price_change:+.2f}%")
-#             else:
-#                 st.metric("24h Change", "N/A")
-        
-#         with col3:
-#             st.metric("Last Updated", price_data['timestamp'].strftime("%H:%M:%S"))
-#     else:
-#         st.error("❌ FAILED TO FETCH PRICE!")
-#         st.error("Check the blue debug messages above to see what went wrong")
+    else:
+        st.info("Historical price data not available for the selected symbol.")
 
 # Tab 2: Prediction
 with tab2:
     st.subheader("🔮 AI-Powered Price Prediction")
-    
+
     # Information banner
     with st.expander("ℹ️ What am I seeing? Click to understand the prediction", expanded=False):
         st.markdown("""
@@ -190,40 +160,28 @@ with tab2:
         #### 💡 Pro Tip:
         Combine this prediction with the **Sentiment Analysis** tab for a complete view of market conditions!
         """.format(selected_symbol))
-    
+
     col1, col2 = st.columns([2, 1])
-    
+
     with col1:
-        if st.button("🚀 Generate AI Prediction", type="primary", use_container_width=True):
-            with st.spinner("🧠 Training AI model on historical data..."):
+        if st.button("🚀 Generate AI Prediction", type="primary"):
+            with st.spinner("🧠 Generating prediction..."):
                 hist_data = collector.get_historical_data(selected_symbol, '1h', 200)
-                
-                # Debug: Show data info
-                if hist_data is not None:
-                    st.info(f"✅ Fetched {len(hist_data)} hours of data")
-                    
-                    # Show a sample of the data
-                    with st.expander("🔍 View Data Sample (for debugging)"):
-                        st.dataframe(hist_data.head(10))
-                        st.write(f"Data shape: {hist_data.shape}")
-                        st.write(f"Columns: {hist_data.columns.tolist()}")
+
+                if hist_data is None or hist_data.empty:
+                    st.error("Failed to fetch sufficient historical data for prediction.")
                 else:
-                    st.error("❌ Failed to fetch historical data. Please try again or select a different trading pair.")
-                    st.stop()
-                
-                if hist_data is not None and len(hist_data) > 30:
                     # Train model
                     score = predictor.train(hist_data)
-                    
-                    if score > 0:
-                        st.success(f"✅ Model trained successfully! Accuracy Score (R²): {score:.4f}")
-                        
-                        # Make prediction
-                        prediction = predictor.predict_next_price(hist_data)
-                    
+
+                    if score is not None:
+                        st.success(f"Model trained. R²: {score:.4f}")
+
+                    prediction = predictor.predict_next_price(hist_data)
+
                     if prediction:
                         st.markdown("### 📊 Market Forecast")
-                        
+
                         col_a, col_b, col_c = st.columns(3)
                         with col_a:
                             st.metric("💰 Current Price", f"${prediction['current_price']:.2f}")
@@ -240,20 +198,20 @@ with tab2:
                             else:
                                 signal = "➡️ Neutral"
                                 color = "off"
-                            
+
                             st.metric("📊 Market Signal", signal,
                                     delta=f"{change:+.2f}%",
                                     delta_color=color)
-                        
+
                         # Trading signal
                         st.markdown("---")
                         if change > 0.5:
-                            st.success(f"🟢 **BULLISH SIGNAL:** AI predicts a **{change:.2f}% increase**. Price may move upward.")
+                            st.success(f"🟢 **BULLISH SIGNAL:** AI predicts a **{change:.2f}% increase**.")
                         elif change < -0.5:
-                            st.error(f"🔴 **BEARISH SIGNAL:** AI predicts a **{abs(change):.2f}% decrease**. Price may move downward.")
+                            st.error(f"🔴 **BEARISH SIGNAL:** AI predicts a **{abs(change):.2f}% decrease**.")
                         else:
-                            st.info(f"⚪ **NEUTRAL SIGNAL:** AI predicts **{abs(change):.2f}% movement**. Market may consolidate.")
-                        
+                            st.info(f"⚪ **NEUTRAL SIGNAL:** AI predicts **{abs(change):.2f}% movement**.")
+
                         # Log prediction
                         logger.log_prediction({
                             'symbol': selected_symbol,
@@ -262,19 +220,14 @@ with tab2:
                             'sentiment': 'N/A',
                             'sentiment_score': 0.0
                         })
-    
+
     with col2:
-        st.info("**🎓 Quick Guide:**\n\n"
-                "1️⃣ Click 'Generate AI Prediction'\n\n"
-                "2️⃣ AI analyzes 200 hours of data\n\n"
-                "3️⃣ Get price forecast + market signal\n\n"
-                "4️⃣ See bullish/bearish/neutral outlook\n\n"
-                "💡 **Tip:** Higher accuracy score = more reliable prediction")
+        st.info("**🎓 Quick Guide:** 1️⃣ Click 'Generate AI Prediction' 2️⃣ AI analyzes 200 hours of data 3️⃣ Get price forecast + market signal 4️⃣ See bullish/bearish/neutral outlook")
 
 # Tab 3: Sentiment Analysis
 with tab3:
     st.subheader("💬 Market Sentiment Analysis")
-    
+
     # Information banner
     with st.expander("ℹ️ What is Market Sentiment? Click to learn", expanded=False):
         st.markdown("""
@@ -320,27 +273,26 @@ with tab3:
         
         **Example:** If sentiment is bullish AND AI predicts price increase → Strong buy signal
         """)
-    
+
     user_input = st.text_area(
         "📝 Paste market news, tweets, or analysis here:",
         height=150,
-        placeholder="Example: 'Bitcoin surges past $50K as institutional investors show strong interest. Market analysts predict continued bullish momentum with potential breakout to new all-time highs...'"
-    )
-    
+        placeholder="Example: 'Bitcoin surges past $50K as institutional investors show strong interest...'")
+
     col1, col2 = st.columns([1, 3])
-    
+
     with col1:
-        analyze_btn = st.button("🧠 Analyze Sentiment", type="primary", use_container_width=True)
-    
+        analyze_btn = st.button("🧠 Analyze Sentiment", type="primary")
+
     if analyze_btn and user_input:
         with st.spinner("🔍 Analyzing market sentiment..."):
             result = analyzer.analyze_text(user_input)
-            
+
             # Display results
             st.markdown("### 📊 Sentiment Analysis Results")
-            
+
             col_a, col_b, col_c = st.columns(3)
-            
+
             with col_a:
                 sentiment = result['sentiment']
                 if sentiment == 'positive':
@@ -352,35 +304,35 @@ with tab3:
                 else:
                     display_sentiment = "⚪ Neutral"
                     emoji = "😐➡️"
-                
+
                 st.metric(
                     "Market Sentiment",
                     display_sentiment,
                     help=f"{emoji} Investor mood indicator"
                 )
-            
+
             with col_b:
                 st.metric("Polarity Score", f"{result['polarity']:.3f}",
                          help="Range: -1 (very negative) to +1 (very positive)")
-            
+
             with col_c:
                 st.metric("VADER Score", f"{result['vader_score']:.3f}",
                          help="Social media sentiment strength")
-            
+
             # Market signal interpretation
             st.markdown("---")
             combined = result['combined_score']
             if combined >= 0.5:
-                st.success("🟢 **STRONG BULLISH (Positive)** - Market sentiment is highly optimistic. Investors are confident. Price may rise.")
+                st.success("🟢 **STRONG BULLISH (Positive)** - Market sentiment is highly optimistic.")
             elif combined >= 0.1:
-                st.success("🟢 **MILD BULLISH (Positive)** - Market sentiment is cautiously optimistic. More buyers than sellers.")
+                st.success("🟢 **MILD BULLISH (Positive)** - Market sentiment is cautiously optimistic.")
             elif combined <= -0.5:
-                st.error("🔴 **STRONG BEARISH (Negative)** - Market sentiment is highly pessimistic. Investors are worried. Price may fall.")
+                st.error("🔴 **STRONG BEARISH (Negative)** - Market sentiment is highly pessimistic.")
             elif combined <= -0.1:
-                st.error("🔴 **MILD BEARISH (Negative)** - Market sentiment is cautiously pessimistic. More sellers than buyers.")
+                st.error("🔴 **MILD BEARISH (Negative)** - Market sentiment is cautiously pessimistic.")
             else:
-                st.info("⚪ **NEUTRAL (Uncertainty)** - Market sentiment is mixed. No clear direction. Investors are waiting for signals.")
-            
+                st.info("⚪ **NEUTRAL (Uncertainty)** - Market sentiment is mixed.")
+
             # Visualization
             st.markdown("### 📈 Sentiment Gauge")
             fig = go.Figure(go.Indicator(
@@ -405,31 +357,16 @@ with tab3:
             ))
             fig.update_layout(height=300)
             st.plotly_chart(fig, use_container_width=True)
-            
+
             # Trading recommendation
             st.markdown("### 💡 What This Means For Trading")
             if result['sentiment'] == 'positive':
-                st.markdown("""
-                - ✅ Consider **long positions** (buying)
-                - ✅ Good time to **hold existing positions**
-                - ⚠️ Watch for **overextension** if too bullish
-                - 💡 Combine with technical analysis for entry points
-                """)
+                st.markdown("- ✅ Consider **long positions** (buying) - ✅ Good time to **hold existing positions** - ⚠️ Watch for **overextension** if too bullish - 💡 Combine with technical analysis for entry points")
             elif result['sentiment'] == 'negative':
-                st.markdown("""
-                - ⚠️ Consider **short positions** or **selling**
-                - ⚠️ Protect profits with **stop losses**
-                - 💡 Wait for sentiment improvement before buying
-                - 📊 Look for **oversold conditions** as reversal signals
-                """)
+                st.markdown("- ⚠️ Consider **short positions** or **selling** - ⚠️ Protect profits with **stop losses** - 💡 Wait for sentiment improvement before buying - 📊 Look for **oversold conditions** as reversal signals")
             else:
-                st.markdown("""
-                - 📊 Market is in **consolidation phase**
-                - ⏳ Wait for **clearer signals** before trading
-                - 🎯 Good time for **range trading strategies**
-                - 📈 Watch for **breakout patterns** in either direction
-                """)
-            
+                st.markdown("- 📊 Market is in **consolidation phase** - ⏳ Wait for **clearer signals** before trading - 🎯 Good time for **range trading strategies**")
+
             # Log sentiment
             price_data = collector.get_realtime_price(selected_symbol)
             if price_data:
@@ -441,43 +378,43 @@ with tab3:
                     'sentiment_score': result['combined_score'],
                     'user_input': user_input[:100]
                 })
-    
+
     elif analyze_btn and not user_input:
         st.warning("⚠️ Please enter some text to analyze!")
-    
+
     # Sample texts for testing
     with st.expander("📝 Try Sample Market Texts"):
         st.markdown("""
         **Bullish Example:**
-        "Bitcoin reaches new all-time high as institutional adoption accelerates. Major banks announce crypto trading services. Market momentum is extremely strong with record trading volumes."
+        "Bitcoin reaches new all-time high as institutional adoption accelerates..."
         
         **Bearish Example:**
-        "Cryptocurrency market crashes amid regulatory concerns. Investors panic sell as prices plummet. Analysts warn of further downside with weak technical indicators."
+        "Cryptocurrency market crashes amid regulatory concerns..."
         
         **Neutral Example:**
-        "Bitcoin trading sideways around $40K. Market participants await Federal Reserve decision. Mixed signals from technical and fundamental indicators."
+        "Bitcoin trading sideways around $40K. Market participants await Federal Reserve decision."
         """)
 
 # Tab 4: Analytics
 with tab4:
     st.subheader("📈 Analytics & Logs")
-    
+
     # Statistics
     stats = logger.get_statistics()
-    
+
     if stats:
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
             st.metric("Total Predictions", stats.get('total_predictions', 0))
-        
+
         with col2:
             st.metric("Avg Sentiment Score", 
                      f"{stats.get('avg_sentiment_score', 0):.3f}")
-        
+
         with col3:
             st.metric("Most Tracked", stats.get('most_tracked_symbol', 'N/A'))
-        
+
         # Sentiment distribution
         if 'sentiment_distribution' in stats:
             st.markdown("### Sentiment Distribution")
@@ -493,11 +430,11 @@ with tab4:
                             'neutral': config.CHART_COLORS['neutral']
                         })
             st.plotly_chart(fig, use_container_width=True)
-    
+
     # Recent logs
     st.markdown("### 📋 Recent Activity")
     logs = logger.get_logs(50)
-    
+
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, height=400)
     else:
@@ -518,3 +455,5 @@ st.markdown(
 if auto_refresh:
     time.sleep(refresh_interval)
     st.rerun()
+
+
