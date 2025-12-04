@@ -21,7 +21,7 @@ A production-ready application that combines real-time cryptocurrency price trac
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/stock-sentiment-predictor.git
+git clone https://github.com/idkzeynav/stock-sentiment-predictor.git
 cd stock-sentiment-predictor
 ```
 
@@ -83,7 +83,7 @@ MIT License
 
 ## 👨‍💻 Author
 
-Your Name - [GitHub](https://github.com/yourusername)
+Your Name - [GitHub](https://github.com/idkzeynav)
 ```
 
 ### 12. `deployment/Dockerfile`
